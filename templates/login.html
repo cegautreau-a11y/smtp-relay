@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - SMTP Relay</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="icon"><i class="fas fa-paper-plane"></i></div>
+            </div>
+            <h1>SMTP Mail Relay</h1>
+            <p class="subtitle">Sign in to manage your mail relay server</p>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    <i class="fas {% if category == 'danger' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('login') }}">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" class="form-control"
+                           placeholder="Enter your username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" class="form-control"
+                           placeholder="Enter your password" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.7rem;">
+                    <i class="fas fa-sign-in-alt"></i> Sign In
+                </button>
+            </form>
+
+            <p style="text-align:center;margin-top:1.5rem;font-size:0.75rem;color:var(--text-secondary);">
+                Default credentials: admin / admin
+            </p>
+            <p style="text-align:center;margin-top:0.75rem;font-size:0.65rem;color:rgba(100,116,139,.6);">
+                Designed &amp; Built by Christopher McGrath
+            </p>
+        </div>
+    </div>
+</body>
+</html>

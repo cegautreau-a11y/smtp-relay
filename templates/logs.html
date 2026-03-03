@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Email Logs - SMTP Relay{% endblock %}
+{% block page_title %}Email Logs{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('logs') }}" class="d-flex gap-1 flex-wrap align-center">
+            <div class="form-group" style="margin:0;flex:1;min-width:180px;">
+                <input type="text" name="search" class="form-control" placeholder="Search sender, recipient, subject..."
+                       value="{{ search }}">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <select name="status" class="form-control">
+                    <option value="">All Statuses</option>
+                    <option value="sent" {{ 'selected' if status_filter == 'sent' }}>Sent</option>
+                    <option value="failed" {{ 'selected' if status_filter == 'failed' }}>Failed</option>
+                    <option value="queued" {{ 'selected' if status_filter == 'queued' }}>Queued</option>
+                    <option value="rejected" {{ 'selected' if status_filter == 'rejected' }}>Rejected</option>
+                    <option value="rate_limited" {{ 'selected' if status_filter == 'rate_limited' }}>Rate Limited</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filter</button>
+            <a href="{{ url_for('logs') }}" class="btn btn-outline btn-sm">Clear</a>
+        </form>
+    </div>
+</div>
+
+<!-- Logs Table -->
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-envelope"></i>&nbsp; Email Log</h2>
+        <span class="text-sm text-muted">{{ pagination.total }} total record{{ 's' if pagination.total != 1 }}</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+        {% if logs %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Timestamp</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Subject</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th>Credential</th>
+                        <th>Source IP</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td class="text-sm text-muted">#{{ log.id }}</td>
+                        <td class="text-sm" style="white-space:nowrap;">
+                            {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else '-' }}
+                        </td>
+                        <td class="truncate text-sm text-mono">{{ log.sender }}</td>
+                        <td class="text-sm">
+                            {% set recips = json.loads(log.recipients) if log.recipients else [] %}
+                            <span class="truncate text-mono" style="display:block;">{{ recips[0] if recips else '-' }}</span>
+                            {% if recips|length > 1 %}
+                            <span class="text-xs text-muted">+{{ recips|length - 1 }} more</span>
+                            {% endif %}
+                        </td>
+                        <td class="truncate text-sm">{{ log.subject or '(no subject)' }}</td>
+                        <td class="text-sm text-muted">
+                            {% if log.size_bytes %}
+                                {% if log.size_bytes > 1048576 %}
+                                    {{ '%.1f'|format(log.size_bytes / 1048576) }} MB
+                                {% elif log.size_bytes > 1024 %}
+                                    {{ '%.1f'|format(log.size_bytes / 1024) }} KB
+                                {% else %}
+                                    {{ log.size_bytes }} B
+                                {% endif %}
+                            {% else %}-{% endif %}
+                        </td>
+                        <td><span class="badge badge-{{ log.status }}">{{ log.status }}</span></td>
+                        <td class="text-sm text-mono">{{ log.smtp_credential or '-' }}</td>
+                        <td class="text-sm text-mono">{{ log.source_ip or '-' }}</td>
+                        <td>
+                            {% if log.status_message %}
+                            <button class="btn btn-outline btn-xs"
+                                    onclick="alert('{{ log.status_message|replace("'", "\\'") }}')"
+                                    title="{{ log.status_message }}">
+                                <i class="fas fa-info-circle"></i>
+                            </button>
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if pagination.pages > 1 %}
+        <div class="card-footer">
+            <div class="d-flex justify-between align-center">
+                <span class="text-sm text-muted">
+                    Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }}-{{ [pagination.page * pagination.per_page, pagination.total]|min }}
+                    of {{ pagination.total }}
+                </span>
+                <div class="pagination">
+                    {% if pagination.has_prev %}
+                    <a href="{{ url_for('logs', page=pagination.prev_num, status=status_filter, sender=sender_filter, search=search) }}">
+                        &laquo;
+                    </a>
+                    {% else %}
+                    <span class="disabled"><span>&laquo;</span></span>
+                    {% endif %}
+
+                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                            {% if p == pagination.page %}
+                            <span class="active"><span>{{ p }}</span></span>
+                            {% else %}
+                            <a href="{{ url_for('logs', page=p, status=status_filter, sender=sender_filter, search=search) }}">{{ p }}</a>
+                            {% endif %}
+                        {% else %}
+                        <span>…</span>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if pagination.has_next %}
+                    <a href="{{ url_for('logs', page=pagination.next_num, status=status_filter, sender=sender_filter, search=search) }}">
+                        &raquo;
+                    </a>
+                    {% else %}
+                    <span class="disabled"><span>&raquo;</span></span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+            <h3>No logs found</h3>
+            <p>{% if search or status_filter %}Try adjusting your filters.{% else %}Email logs will appear here once the relay processes messages.{% endif %}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

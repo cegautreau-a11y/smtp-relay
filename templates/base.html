@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SMTP Relay{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% block head %}{% endblock %}
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon"><i class="fas fa-paper-plane"></i></div>
+                <div>
+                    <div class="brand-text">SMTP Relay</div>
+                    <div class="brand-sub">Mail Gateway</div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Overview</div>
+                    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-chart-line"></i></span> Dashboard
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Mail</div>
+                    <a href="{{ url_for('logs') }}" class="nav-link {% if request.endpoint == 'logs' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-envelope"></i></span> Email Logs
+                    </a>
+                    <a href="{{ url_for('queue') }}" class="nav-link {% if request.endpoint == 'queue' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-clock"></i></span> Queue
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Access Control</div>
+                    <a href="{{ url_for('domains') }}" class="nav-link {% if request.endpoint == 'domains' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-globe"></i></span> Allowed Domains
+                    </a>
+                    <a href="{{ url_for('credentials') }}" class="nav-link {% if request.endpoint == 'credentials' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-key"></i></span> SMTP Credentials
+                    </a>
+                </div>
+
+                {% if current_user.is_authenticated and current_user.has_role('admin') %}
+                <div class="nav-section">
+                    <div class="nav-section-title">Administration</div>
+                    <a href="{{ url_for('config') }}" class="nav-link {% if request.endpoint == 'config' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-cog"></i></span> Configuration
+                    </a>
+                    <a href="{{ url_for('users') }}" class="nav-link {% if request.endpoint == 'users' %}active{% endif %}">
+                        <span class="nav-icon"><i class="fas fa-users"></i></span> Users
+                    </a>
+                </div>
+                {% endif %}
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-user">
+                    {% if current_user.is_authenticated %}
+                    <div class="avatar">{{ current_user.username[0]|upper }}</div>
+                    <div class="user-info">
+                        <div class="user-name">{{ current_user.username }}</div>
+                        <div class="user-role">
+                            <span class="role-badge {{ current_user.role_badge_class }}">{{ current_user.role_label }}</span>
+                        </div>
+                    </div>
+                    <a href="{{ url_for('profile') }}" title="Profile" style="color:var(--text-sidebar);margin-left:auto;">
+                        <i class="fas fa-user-cog"></i>
+                    </a>
+                    {% else %}
+                    <div class="avatar">?</div>
+                    <div class="user-info">
+                        <div class="user-name">Not signed in</div>
+                        <div class="user-role">Guest</div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,.08);text-align:center;">
+                    <span style="font-size:0.65rem;color:rgba(148,163,184,.5);letter-spacing:0.02em;">
+                        Designed &amp; Built by Christopher McGrath
+                    </span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="content-header">
+                <div class="d-flex align-center gap-1">
+                    <button class="mobile-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                </div>
+                <div class="header-actions">
+                    {% if current_user.is_authenticated %}
+                    <div class="server-status {{ 'running' if smtp_running else 'stopped' }}" id="global-smtp-status">
+                        <span class="status-dot {{ 'green' if smtp_running else 'red' }}"></span>
+                        SMTP {{ 'Running' if smtp_running else 'Stopped' }}
+                    </div>
+                    {% endif %}
+                    {% block header_actions %}{% endblock %}
+                    {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('logout') }}" class="btn btn-outline btn-sm">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </a>
+                    {% endif %}
+                </div>
+            </header>
+
+            <div class="content-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        <i class="fas {% if category == 'success' %}fa-check-circle{% elif category == 'danger' %}fa-exclamation-circle{% elif category == 'warning' %}fa-exclamation-triangle{% else %}fa-info-circle{% endif %}"></i>
+                        {{ message }}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    {% if current_user.is_authenticated %}
+    <script>
+    // Auto-refresh SMTP status every 15 seconds on all pages
+    setInterval(async () => {
+        try {
+            const resp = await fetch('/api/stats');
+            const data = await resp.json();
+            const el = document.getElementById('global-smtp-status');
+            if (el) {
+                el.className = 'server-status ' + (data.smtp_running ? 'running' : 'stopped');
+                el.querySelector('.status-dot').className = 'status-dot ' + (data.smtp_running ? 'green' : 'red');
+                el.childNodes[el.childNodes.length - 1].textContent = ' SMTP ' + (data.smtp_running ? 'Running' : 'Stopped');
+            }
+        } catch(e) {}
+    }, 15000);
+    </script>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{ code }} - SMTP Relay</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="icon"><i class="fas fa-paper-plane"></i></div>
+            </div>
+            <div style="text-align:center;padding:1rem 0;">
+                <div style="font-size:4rem;font-weight:700;color:var(--primary);margin-bottom:0.5rem;">{{ code }}</div>
+                <h2 style="font-size:1.25rem;margin:0 0 1rem;">{{ message }}</h2>
+                <p class="text-muted" style="margin-bottom:2rem;">
+                    {% if code == 403 %}
+                    You don't have permission to access this page. Contact an administrator if you believe this is an error.
+                    {% elif code == 404 %}
+                    The page you're looking for doesn't exist or has been moved.
+                    {% else %}
+                    Something went wrong on our end. Please try again later.
+                    {% endif %}
+                </p>
+                <a href="{{ url_for('login') }}" class="btn btn-primary" style="display:inline-flex;justify-content:center;padding:0.7rem 2rem;">
+                    <i class="fas fa-sign-in-alt"></i>&nbsp; Go to Login
+                </a>
+            </div>
+            <p style="text-align:center;margin-top:1.5rem;font-size:0.65rem;color:rgba(100,116,139,.6);">
+                Designed &amp; Built by Christopher McGrath
+            </p>
+        </div>
+    </div>
+</body>
+</html>

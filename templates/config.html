@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Configuration - SMTP Relay{% endblock %}
+{% block page_title %}Server Configuration{% endblock %}
+
+{% block content %}
+<form method="POST" action="{{ url_for('config') }}">
+    <!-- Destination Relay -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-server"></i>&nbsp; Destination Relay Server</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">Configure the upstream mail server where emails will be forwarded.</p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="relay_host">Relay Host</label>
+                    <input type="text" id="relay_host" name="relay_host" class="form-control"
+                           value="{{ configs.relay_host }}" placeholder="smtp.example.com">
+                    <div class="form-hint">Hostname or IP of the destination SMTP server</div>
+                </div>
+                <div class="form-group">
+                    <label for="relay_port">Relay Port</label>
+                    <input type="number" id="relay_port" name="relay_port" class="form-control"
+                           value="{{ configs.relay_port }}" placeholder="25">
+                    <div class="form-hint">Common ports: 25 (SMTP), 465 (SMTPS), 587 (Submission)</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="relay_helo_hostname">Sending Server Name (HELO/EHLO Hostname)</label>
+                <input type="text" id="relay_helo_hostname" name="relay_helo_hostname" class="form-control"
+                       value="{{ configs.relay_helo_hostname }}" placeholder="myserver.example.com"
+                       style="max-width:400px;">
+                <div class="form-hint">
+                    The hostname this relay identifies itself as when connecting to the destination server.
+                    Should match a valid DNS record for best deliverability (e.g. your server's public FQDN).
+                </div>
+            </div>
+
+            <!-- Destination TLS -->
+            <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+                <label style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:block;">
+                    <i class="fas fa-lock"></i>&nbsp; Destination Encryption (optional)
+                </label>
+                <p class="text-sm text-muted mb-1">
+                    Enable encryption when connecting to the upstream server.
+                    Leave both unchecked for a plain-text connection.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input type="checkbox" id="relay_use_tls" name="relay_use_tls"
+                                   {{ 'checked' if configs.relay_use_tls == 'true' }}>
+                            <label for="relay_use_tls">Use SSL/TLS (implicit – typically port 465)</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input type="checkbox" id="relay_use_starttls" name="relay_use_starttls"
+                                   {{ 'checked' if configs.relay_use_starttls == 'true' }}>
+                            <label for="relay_use_starttls">Use STARTTLS (upgrade – typically port 587)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Destination Auth -->
+            <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+                <label style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:block;">
+                    <i class="fas fa-user-lock"></i>&nbsp; Destination Authentication (optional)
+                </label>
+                <p class="text-sm text-muted mb-1">
+                    If the upstream server requires a login, enter the credentials below.
+                    Leave both fields empty to connect without authentication.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="relay_auth_user">Username</label>
+                        <input type="text" id="relay_auth_user" name="relay_auth_user" class="form-control"
+                               value="{{ configs.relay_auth_user }}" placeholder="Empty = no auth">
+                    </div>
+                    <div class="form-group">
+                        <label for="relay_auth_password">Password</label>
+                        <input type="password" id="relay_auth_password" name="relay_auth_password" class="form-control"
+                               value="{{ configs.relay_auth_password }}" placeholder="Empty = no auth">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Listener Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-headphones"></i>&nbsp; Listener Settings</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">Configure how this relay server accepts incoming SMTP connections from your applications.</p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="listen_host">Listen Host</label>
+                    <input type="text" id="listen_host" name="listen_host" class="form-control"
+                           value="{{ configs.listen_host }}" placeholder="0.0.0.0">
+                    <div class="form-hint">0.0.0.0 = all interfaces, 127.0.0.1 = localhost only</div>
+                </div>
+                <div class="form-group">
+                    <label for="listen_port">Listen Port</label>
+                    <input type="number" id="listen_port" name="listen_port" class="form-control"
+                           value="{{ configs.listen_port }}" placeholder="2525">
+                    <div class="form-hint">Port this relay listens on for incoming SMTP connections</div>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="banner_hostname">SMTP Banner Hostname</label>
+                    <input type="text" id="banner_hostname" name="banner_hostname" class="form-control"
+                           value="{{ configs.banner_hostname }}" placeholder="relay.local">
+                    <div class="form-hint">Hostname shown in the SMTP 220 banner to connecting clients</div>
+                </div>
+                <div class="form-group">
+                    <div class="form-check" style="margin-top:1.5rem;">
+                        <input type="checkbox" id="require_auth" name="require_auth"
+                               {{ 'checked' if configs.require_auth == 'true' }}>
+                        <label for="require_auth">Require SMTP Authentication from clients</label>
+                    </div>
+                    <div class="form-hint">When enabled, clients must authenticate before sending</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Listener TLS -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-shield-alt"></i>&nbsp; Listener TLS / Encryption (optional – off by default)</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">
+                Enable TLS/STARTTLS on the listener so clients connecting from your computer to this
+                server use an encrypted connection.  This is <strong>off by default</strong> and requires
+                a certificate and private key file.
+            </p>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="enable_tls" name="enable_tls"
+                           {{ 'checked' if configs.enable_tls == 'true' }}>
+                    <label for="enable_tls">Enable TLS/STARTTLS on the listener</label>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tls_cert_path">TLS Certificate Path</label>
+                    <input type="text" id="tls_cert_path" name="tls_cert_path" class="form-control"
+                           value="{{ configs.tls_cert_path }}" placeholder="C:\certs\cert.pem">
+                    <div class="form-hint">Full path to the PEM certificate file</div>
+                </div>
+                <div class="form-group">
+                    <label for="tls_key_path">TLS Private Key Path</label>
+                    <input type="text" id="tls_key_path" name="tls_key_path" class="form-control"
+                           value="{{ configs.tls_key_path }}" placeholder="C:\certs\key.pem">
+                    <div class="form-hint">Full path to the PEM private key file</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Limiting & Limits -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-tachometer-alt"></i>&nbsp; Limits & Rate Limiting</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="max_message_size">Max Message Size (bytes)</label>
+                    <input type="number" id="max_message_size" name="max_message_size" class="form-control"
+                           value="{{ configs.max_message_size }}">
+                    <div class="form-hint">Default: 26214400 (25 MB)</div>
+                </div>
+                <div class="form-group">
+                    <label for="max_recipients">Max Recipients per Message</label>
+                    <input type="number" id="max_recipients" name="max_recipients" class="form-control"
+                           value="{{ configs.max_recipients }}">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="global_rate_limit">Global Rate Limit (emails/hour)</label>
+                    <input type="number" id="global_rate_limit" name="global_rate_limit" class="form-control"
+                           value="{{ configs.global_rate_limit }}">
+                </div>
+                <div class="form-group">
+                    <label for="allowed_source_ips">Allowed Source IPs</label>
+                    <input type="text" id="allowed_source_ips" name="allowed_source_ips" class="form-control"
+                           value="{{ configs.allowed_source_ips }}" placeholder="Leave empty to allow all">
+                    <div class="form-hint">Comma-separated list of IPs allowed to connect</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Queue Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-redo"></i>&nbsp; Queue & Retry Settings</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="queue_retry_interval">Retry Interval (seconds)</label>
+                    <input type="number" id="queue_retry_interval" name="queue_retry_interval" class="form-control"
+                           value="{{ configs.queue_retry_interval }}">
+                    <div class="form-hint">Base interval between retries (multiplied by attempt number)</div>
+                </div>
+                <div class="form-group">
+                    <label for="queue_max_retries">Max Retries</label>
+                    <input type="number" id="queue_max_retries" name="queue_max_retries" class="form-control"
+                           value="{{ configs.queue_max_retries }}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="log_retention_days">Log Retention (days)</label>
+                <input type="number" id="log_retention_days" name="log_retention_days" class="form-control"
+                       value="{{ configs.log_retention_days }}" style="max-width:200px;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Save -->
+    <div class="d-flex justify-between align-center" style="flex-wrap:wrap;gap:0.75rem;">
+        <p class="text-sm text-muted" style="margin:0;">
+            <i class="fas fa-info-circle"></i>
+            Listener changes require an SMTP server restart.
+            Relay/sending changes take effect on the next message.
+        </p>
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Save Configuration
+        </button>
+    </div>
+</form>
+
+<!-- Config File Operations -->
+<div class="card" style="margin-top:1.5rem;">
+    <div class="card-header">
+        <h2><i class="fas fa-file-code"></i>&nbsp; config.json File Operations</h2>
+    </div>
+    <div class="card-body">
+        <p class="text-sm text-muted mb-2">
+            Reload settings from the <code>config.json</code> file on disk into the active configuration,
+            or save the current active configuration back to the file.
+            This lets you apply file changes without restarting the server.
+        </p>
+        <div class="d-flex gap-1" style="flex-wrap:wrap;">
+            <form method="POST" action="{{ url_for('reload_config') }}" style="display:inline;">
+                <button type="submit" class="btn btn-warning"
+                        onclick="return confirm('This will overwrite the current active configuration with values from config.json on disk. Continue?')">
+                    <i class="fas fa-sync-alt"></i> Reload config.json into Active Config
+                </button>
+            </form>
+            <form method="POST" action="{{ url_for('save_config_to_file') }}" style="display:inline;">
+                <button type="submit" class="btn btn-outline"
+                        onclick="return confirm('This will overwrite config.json on disk with the current active configuration. Continue?')">
+                    <i class="fas fa-download"></i> Save Active Config to config.json
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Users - SMTP Relay{% endblock %}
+{% block page_title %}User Management{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addUserModal').classList.add('active')">
+    <i class="fas fa-plus"></i> Add User
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-users"></i>&nbsp; Web Interface Users</h2>
+        <span class="text-sm text-muted">{{ users|length }} user{{ 's' if users|length != 1 }}</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>
+                            <strong>{{ user.username }}</strong>
+                            {% if user.id == current_user.id %}<span class="text-muted text-xs">(you)</span>{% endif %}
+                        </td>
+                        <td class="text-sm">{{ user.email }}</td>
+                        <td>
+                            <span class="role-badge {{ user.role_badge_class }}">
+                                {{ user.role_label }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-{{ 'active' if user.is_active else 'inactive' }}">
+                                {{ 'Active' if user.is_active else 'Disabled' }}
+                            </span>
+                        </td>
+                        <td class="text-sm text-muted">
+                            {{ user.last_login.strftime('%b %d, %H:%M') if user.last_login else 'Never' }}
+                        </td>
+                        <td class="text-sm text-muted">
+                            {{ user.created_at.strftime('%b %d, %Y') if user.created_at else '-' }}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1 flex-wrap">
+                                {% if current_user.can_manage_user(user) %}
+                                {# Enable / Disable #}
+                                <form method="POST" action="{{ url_for('toggle_user', uid=user.id) }}">
+                                    <button type="submit" class="btn btn-outline btn-xs">
+                                        {{ 'Disable' if user.is_active else 'Enable' }}
+                                    </button>
+                                </form>
+                                {# Change Role dropdown #}
+                                <div class="inline-role-change">
+                                    <form method="POST" action="{{ url_for('change_user_role', uid=user.id) }}" class="d-flex gap-1">
+                                        <select name="role" class="form-control form-control-xs">
+                                            {% for r in Role.assignable_roles(current_user.role) %}
+                                            <option value="{{ r }}" {% if r == user.role %}selected{% endif %}>{{ Role.label(r) }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="btn btn-outline btn-xs" title="Change role">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                                {% endif %}
+                                {# Reset Password — manageable users + yourself #}
+                                {% if current_user.can_manage_user(user) or user.id == current_user.id %}
+                                <button class="btn btn-outline btn-xs"
+                                        onclick="openUserResetPw({{ user.id }}, '{{ user.username }}')">
+                                    <i class="fas fa-key"></i>
+                                </button>
+                                {% endif %}
+                                {# Delete #}
+                                {% if current_user.can_manage_user(user) %}
+                                <form method="POST" action="{{ url_for('delete_user', uid=user.id) }}"
+                                      onsubmit="return confirm('Delete user {{ user.username }}? This cannot be undone.')">
+                                    <button type="submit" class="btn btn-danger btn-xs">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="addUserModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Add User</h3>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('add_user') }}">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="new_username">Username</label>
+                    <input type="text" id="new_username" name="username" class="form-control"
+                           placeholder="johndoe" required>
+                </div>
+                <div class="form-group">
+                    <label for="new_email">Email</label>
+                    <input type="email" id="new_email" name="email" class="form-control"
+                           placeholder="john@example.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="new_password">Password</label>
+                    <input type="password" id="new_password" name="password" class="form-control"
+                           placeholder="Min 8 characters" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label for="new_role">Role</label>
+                    <select id="new_role" name="role" class="form-control">
+                        {% for r in Role.assignable_roles(current_user.role) %}
+                        <option value="{{ r }}">{{ Role.label(r) }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-hint">
+                        <strong>Viewer</strong> — read-only dashboard access<br>
+                        <strong>Operator</strong> — manage domains, credentials &amp; queue<br>
+                        <strong>Admin</strong> — full config, user management<br>
+                        <strong>Super Admin</strong> — manage all users including admins
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="userResetPwModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Reset Password: <span id="userResetPwName"></span></h3>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">&times;</button>
+        </div>
+        <form method="POST" id="userResetPwForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="user_new_pw">New Password</label>
+                    <input type="password" id="user_new_pw" name="new_password" class="form-control"
+                           placeholder="Enter new password" required minlength="8">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-key"></i> Reset Password</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openUserResetPw(userId, username) {
+    document.getElementById('userResetPwName').textContent = username;
+    document.getElementById('userResetPwForm').action = '/users/' + userId + '/reset-password';
+    document.getElementById('userResetPwModal').classList.add('active');
+}
+</script>
+{% endblock %}
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

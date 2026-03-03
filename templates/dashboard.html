@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - SMTP Relay{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block header_actions %}
+{% if current_user.has_role('admin') %}
+{% if smtp_running %}
+<form method="POST" action="{{ url_for('restart_server') }}" style="display:inline;">
+    <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Restart SMTP server?')">
+        <i class="fas fa-sync-alt"></i> Restart
+    </button>
+</form>
+<form method="POST" action="{{ url_for('stop_server') }}" style="display:inline;">
+    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Stop SMTP server?')">
+        <i class="fas fa-stop"></i> Stop
+    </button>
+</form>
+{% else %}
+<form method="POST" action="{{ url_for('start_server') }}" style="display:inline;">
+    <button type="submit" class="btn btn-success btn-sm">
+        <i class="fas fa-play"></i> Start
+    </button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Stats Grid -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-info">
+            <h3>Sent Today</h3>
+            <div class="stat-value">{{ stats.sent_today }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon red"><i class="fas fa-times-circle"></i></div>
+        <div class="stat-info">
+            <h3>Failed Today</h3>
+            <div class="stat-value">{{ stats.failed_today }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue"><i class="fas fa-tachometer-alt"></i></div>
+        <div class="stat-info">
+            <h3>This Hour</h3>
+            <div class="stat-value">{{ stats.sent_this_hour }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon yellow"><i class="fas fa-hourglass-half"></i></div>
+        <div class="stat-info">
+            <h3>Queued</h3>
+            <div class="stat-value">{{ stats.total_queued }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon purple"><i class="fas fa-globe"></i></div>
+        <div class="stat-info">
+            <h3>Active Domains</h3>
+            <div class="stat-value">{{ stats.active_domains }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon indigo"><i class="fas fa-key"></i></div>
+        <div class="stat-info">
+            <h3>SMTP Credentials</h3>
+            <div class="stat-value">{{ stats.active_credentials }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart -->
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-chart-bar"></i>&nbsp; 7-Day Email Volume</h2>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="emailChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Emails -->
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-envelope"></i>&nbsp; Recent Emails</h2>
+        <a href="{{ url_for('logs') }}" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Subject</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if recent_logs %}
+                {% for log in recent_logs %}
+                <tr>
+                    <td class="text-sm text-muted" style="white-space:nowrap;">
+                        {{ log.timestamp.strftime('%b %d %H:%M') if log.timestamp else '-' }}
+                    </td>
+                    <td class="truncate text-sm">{{ log.sender }}</td>
+                    <td class="truncate text-sm">
+                        {% set recips = json.loads(log.recipients) if log.recipients else [] %}
+                        {{ recips[0] if recips else '-' }}
+                        {% if recips|length > 1 %}<span class="text-muted">+{{ recips|length - 1 }}</span>{% endif %}
+                    </td>
+                    <td class="truncate text-sm">{{ log.subject or '(no subject)' }}</td>
+                    <td>
+                        <span class="badge badge-{{ log.status }}">{{ log.status }}</span>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+                            <h3>No emails yet</h3>
+                            <p>Emails will appear here once the relay processes messages.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Totals Summary -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-paper-plane"></i></div>
+        <div class="stat-info">
+            <h3>Total Sent</h3>
+            <div class="stat-value">{{ stats.total_sent }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="stat-info">
+            <h3>Total Failed</h3>
+            <div class="stat-value">{{ stats.total_failed }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon yellow"><i class="fas fa-ban"></i></div>
+        <div class="stat-info">
+            <h3>Total Rejected</h3>
+            <div class="stat-value">{{ stats.total_rejected }}</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon indigo"><i class="fas fa-users"></i></div>
+        <div class="stat-info">
+            <h3>Web Users</h3>
+            <div class="stat-value">{{ stats.total_users }}</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+    const dailyStats = {{ daily_stats|safe }};
+    const ctx = document.getElementById('emailChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dailyStats.map(d => d.date),
+            datasets: [
+                {
+                    label: 'Sent',
+                    data: dailyStats.map(d => d.sent),
+                    backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Failed',
+                    data: dailyStats.map(d => d.failed),
+                    backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                    borderRadius: 4,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true, padding: 20 } }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    // Auto-refresh stats every 30 seconds
+    </script>
+{% endblock %}
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
