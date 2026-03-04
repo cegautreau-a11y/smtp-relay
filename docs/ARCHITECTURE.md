@@ -1,5 +1,7 @@
 # Architecture Overview
 
+**SMTP Mail Relay v2.1.0**
+
 This document describes the system design, component interactions, and technical decisions behind the SMTP Mail Relay.
 
 ---
@@ -8,7 +10,7 @@ This document describes the system design, component interactions, and technical
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │              SMTP Mail Relay                 │
+                    │            SMTP Mail Relay v2.1.0            │
                     │                                             │
   Applications      │  ┌──────────────┐    ┌──────────────────┐  │     Upstream
   & Devices         │  │  SMTP Server │    │  Queue Processor  │  │     SMTP Server
@@ -17,15 +19,15 @@ This document describes the system design, component interactions, and technical
        └───────────▶│  └──────────────┘    └──────────────────┘  │
                     │         │                     │             │
                     │         ▼                     ▼             │
-                    │  ┌─────────────────────────────────────┐   │
-                    │  │         SQLite Database              │   │
-                    │  │  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │
-                    │  │  │Email Log│ │Queue │ │Config    │  │   │
-                    │  │  │         │ │      │ │Users     │  │   │
-                    │  │  │         │ │      │ │Domains   │  │   │
-                    │  │  │         │ │      │ │Credentials│  │   │
-                    │  │  └─────────┘ └──────┘ └──────────┘  │   │
-                    │  └─────────────────────────────────────┘   │
+                    │  ┌─────────────────────────────────────────┐│
+                    │  │         SQLite Database                 ││
+                    │  │  ┌─────────┐ ┌──────┐ ┌──────────┐     ││
+                    │  │  │Email Log│ │Queue │ │Config    │     ││
+                    │  │  │+Headers │ │      │ │Users     │     ││
+                    │  │  │         │ │      │ │Domains   │     ││
+                    │  │  │         │ │      │ │Credentials│     ││
+                    │  │  └─────────┘ └──────┘ └──────────┘     ││
+                    │  └─────────────────────────────────────────┘│
                     │         ▲                                   │
                     │         │                                   │
                     │  ┌──────────────┐                           │
@@ -61,8 +63,9 @@ A Flask application created via the `create_app()` factory pattern. Key responsi
 - **Configuration management** — Two-layer config (database + JSON file), reload and save-to-file capabilities
 - **CRUD operations** — Users, domains, SMTP credentials, queue management
 - **SMTP server control** — Start, stop, restart the SMTP listener from the web UI
-- **API endpoints** — `/api/stats` and `/api/logs/recent` for AJAX updates
-- **Database migration** — Automatic schema migration for role column on startup
+- **API endpoints** — `/api/stats`, `/api/logs/recent`, and `/api/logs/<id>/detail` for AJAX updates and email detail retrieval
+- **Queue management** — Individual and bulk retry/delete operations for failed messages
+- **Database migration** — Automatic schema migration for role column and raw_headers column on startup
 - **Context processor** — Injects `smtp_running` status and `Role` class into all templates
 
 ### 3. SMTP Server — `smtp_server.py`
@@ -77,7 +80,7 @@ Processes the SMTP transaction lifecycle:
 - **EHLO** — Records client hostname
 - **MAIL FROM** — Enforces authentication, IP allowlist, domain allowlist, per-credential rate limits, and global rate limits
 - **RCPT TO** — Enforces maximum recipient count
-- **DATA** — Validates message size, creates log and queue entries, spawns a delivery thread
+- **DATA** — Validates message size, extracts email headers, creates log and queue entries, spawns a delivery thread
 
 #### `SmtpRelayServer`
 Wraps the aiosmtpd `Controller` with:
@@ -90,7 +93,7 @@ Wraps the aiosmtpd `Controller` with:
 Background thread that runs every 30 seconds:
 - Finds queued messages where `next_retry_at` has passed
 - Attempts redelivery using `RelayHandler._deliver()`
-- Handles log retention cleanup
+- Handles log retention cleanup — only purges successfully sent queue entries; **failed entries are retained indefinitely** until an administrator manually retries or deletes them
 
 ### 4. Database Models — `models.py`
 
@@ -102,9 +105,28 @@ SQLAlchemy models with SQLite backend:
 | `User` | `users` | Web interface accounts with role-based permissions |
 | `AllowedDomain` | `allowed_domains` | Sender domain allowlist |
 | `SmtpCredential` | `smtp_credentials` | SMTP AUTH credentials with per-credential rate limits |
-| `EmailLog` | `email_logs` | Audit trail of all processed messages |
+| `EmailLog` | `email_logs` | Audit trail of all processed messages including raw email headers |
 | `EmailQueue` | `email_queue` | Messages pending delivery or retry |
 | `RelayConfig` | `relay_config` | Runtime configuration key-value store |
+
+#### EmailLog Schema (v2.0)
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | Integer (PK) | Auto-increment primary key |
+| `timestamp` | DateTime | When the message was received |
+| `sender` | String(255) | Envelope sender address |
+| `recipients` | Text | JSON array of recipient addresses |
+| `subject` | String(500) | Email subject line |
+| `size_bytes` | Integer | Message size in bytes |
+| `status` | String(20) | Current status: queued, sent, failed, rejected |
+| `status_message` | Text | Delivery result or error message |
+| `smtp_credential` | String(120) | SMTP credential username used |
+| `source_ip` | String(45) | Connecting client IP address |
+| `relay_server` | String(255) | Upstream relay server hostname |
+| `retry_count` | Integer | Number of delivery attempts |
+| `message_id` | String(255) | Email Message-ID header value |
+| `raw_headers` | Text | Full raw email headers (v2.0) |
 
 ### 5. Templates — `templates/`
 
@@ -115,8 +137,8 @@ Jinja2 templates with a shared `base.html` layout:
 | `base.html` | Main layout: sidebar navigation, header with SMTP status, flash messages, auto-refresh JS |
 | `login.html` | Authentication page |
 | `dashboard.html` | Statistics grid, 7-day chart, recent emails table |
-| `logs.html` | Searchable email log with pagination |
-| `queue.html` | Queued, processing, and failed message tables with retry/delete actions |
+| `logs.html` | Searchable email log with pagination and detail modal for viewing full email headers |
+| `queue.html` | Queued, processing, and failed message tables with individual and bulk retry/delete actions |
 | `domains.html` | Domain allowlist management |
 | `credentials.html` | SMTP credential management |
 | `config.html` | Configuration editor with reload/save buttons |
@@ -129,12 +151,22 @@ Jinja2 templates with a shared `base.html` layout:
 
 | File | Description |
 |---|---|
-| `css/style.css` | Complete responsive stylesheet with role badge styles, dark sidebar, card layouts |
+| `css/style.css` | Complete responsive stylesheet with role badge styles, dark sidebar, card layouts, log detail modal styles |
 
 External CDN resources:
 - **Font Awesome 6.5** — Icons
 - **Inter** — Google Fonts
 - **Chart.js 4.4** — Dashboard chart (loaded only on dashboard page)
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Auth | Description |
+|---|---|---|---|
+| `/api/stats` | GET | Required | Dashboard statistics (sent/failed today, queue count, SMTP status) |
+| `/api/logs/recent` | GET | Required | Last 20 email log entries as JSON |
+| `/api/logs/<id>/detail` | GET | Required | Full detail for a single email log entry including raw headers |
 
 ---
 
@@ -156,6 +188,7 @@ External CDN resources:
    → Max recipients check
 6. DATA (message body)
    → Max message size check
+   → Email headers extracted and stored
    → EmailLog entry created (status: queued)
    → EmailQueue entry created
    → Delivery thread spawned
@@ -177,7 +210,10 @@ External CDN resources:
 7. On failure:
    → Increment retry count
    → If retries < max_retries: reschedule (status → queued)
-   → If retries >= max_retries: give up (status → failed)
+   → If retries >= max_retries: mark as failed (status → failed)
+   → Failed entries are retained in the queue with their raw message
+     data intact — they are never automatically discarded
+   → Administrators can manually retry or delete from the Queue page
 ```
 
 ---
@@ -201,6 +237,23 @@ External CDN resources:
 - Per-credential and global rate limits prevent abuse
 - Message size limits prevent resource exhaustion
 - CSRF protection via Flask-WTF
+
+---
+
+## Database Migrations
+
+The application performs automatic schema migrations on startup to ensure compatibility with older databases:
+
+| Migration | Added In | Description |
+|---|---|---|
+| `_migrate_roles()` | v1.0.0 | Adds `role` column to `users` table, sets existing admins to `super_admin` |
+| `_migrate_raw_headers()` | v2.0.0 | Adds `raw_headers` column to `email_logs` table for storing email headers |
+
+### Queue Retention Policy (v2.0.1)
+
+The automatic cleanup process (`cleanup_old()`) only purges **successfully sent** queue entries after the configured `log_retention_days` period. Failed queue entries are **never automatically deleted** — they remain in the system with their full `raw_message` data until an administrator takes explicit action (retry or delete) via the Queue page in the web interface. This ensures no undelivered email is ever silently discarded.
+
+Migrations are idempotent — they check for the column's existence before attempting to add it, so they are safe to run on already-migrated databases.
 
 ---
 
@@ -233,3 +286,6 @@ The relay uses threads instead of separate processes to keep deployment simple o
 
 ### Why Two-Layer Configuration?
 The config.json file provides a version-controllable, human-readable configuration baseline. The database layer allows runtime changes without restarting the application. This dual approach gives administrators flexibility while maintaining a clear configuration source of truth.
+
+### Why Store Raw Headers? (v2.0)
+Email headers contain critical diagnostic information — routing paths, authentication results, content types, mailer identification, and timestamps. Storing them at relay time provides a complete audit trail for troubleshooting delivery issues, verifying sender authenticity, and diagnosing formatting problems without needing access to the original sending application.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 SMTP Mail Relay – Windows Launcher
+Version 2.1.0
 ===================================
 Designed and built by Christopher McGrath
 
@@ -12,6 +13,7 @@ User accounts are managed through the web interface only.
 """
 
 # Author: Christopher McGrath
+# Version: 2.1.0
 
 import json
 import logging
@@ -158,7 +160,7 @@ def main():
 
     print()
     print('=' * 60)
-    print('  SMTP Mail Relay')
+    print('  SMTP Mail Relay  v2.1.0')
     print('  Designed and built by Christopher McGrath')
     print('=' * 60)
     print(f'  Web Interface : http://{web_host}:{web_port}')

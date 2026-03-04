@@ -82,13 +82,11 @@
                         <td class="text-sm text-mono">{{ log.smtp_credential or '-' }}</td>
                         <td class="text-sm text-mono">{{ log.source_ip or '-' }}</td>
                         <td>
-                            {% if log.status_message %}
                             <button class="btn btn-outline btn-xs"
-                                    onclick="alert('{{ log.status_message|replace("'", "\\'") }}')"
-                                    title="{{ log.status_message }}">
+                                    onclick="openLogDetail({{ log.id }})"
+                                    title="View details">
                                 <i class="fas fa-info-circle"></i>
                             </button>
-                            {% else %}-{% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -146,5 +144,118 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Log Detail Modal -->
+<div class="modal-overlay" id="logDetailModal">
+    <div class="modal" style="max-width:700px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-envelope-open-text"></i>&nbsp; Email Detail</h3>
+            <button class="modal-close" onclick="closeLogDetail()">&times;</button>
+        </div>
+        <div class="modal-body" id="logDetailBody">
+            <div class="empty-state" style="padding:2rem;">
+                <i class="fas fa-spinner fa-spin"></i>&nbsp; Loading…
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline btn-sm" onclick="closeLogDetail()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openLogDetail(logId) {
+    var modal = document.getElementById('logDetailModal');
+    var body = document.getElementById('logDetailBody');
+    modal.classList.add('active');
+    body.innerHTML = '<div class="empty-state" style="padding:2rem;"><i class="fas fa-spinner fa-spin"></i>&nbsp; Loading…</div>';
+
+    fetch('/api/logs/' + logId + '/detail')
+        .then(function(r) {
+            if (!r.ok) throw new Error('Failed to load');
+            return r.json();
+        })
+        .then(function(d) {
+            var sizeStr = '-';
+            if (d.size_bytes > 1048576) sizeStr = (d.size_bytes / 1048576).toFixed(1) + ' MB';
+            else if (d.size_bytes > 1024) sizeStr = (d.size_bytes / 1024).toFixed(1) + ' KB';
+            else if (d.size_bytes > 0) sizeStr = d.size_bytes + ' B';
+
+            var recips = '';
+            if (d.recipients && d.recipients.length) {
+                recips = d.recipients.map(function(r) {
+                    return '<span class="text-mono">' + escHtml(r) + '</span>';
+                }).join('<br>');
+            } else {
+                recips = '-';
+            }
+
+            var html = '';
+            html += '<div class="log-detail-grid">';
+
+            html += '<div class="log-detail-section">';
+            html += '<h4><i class="fas fa-info-circle"></i> Message Info</h4>';
+            html += '<table class="detail-table">';
+            html += detailRow('Status', '<span class="badge badge-' + escHtml(d.status) + '">' + escHtml(d.status) + '</span>');
+            if (d.status_message) html += detailRow('Status Message', escHtml(d.status_message));
+            html += detailRow('Timestamp', escHtml(d.timestamp));
+            html += detailRow('Subject', escHtml(d.subject));
+            html += detailRow('From', '<span class="text-mono">' + escHtml(d.sender) + '</span>');
+            html += detailRow('To', recips);
+            html += detailRow('Size', sizeStr);
+            html += detailRow('Message-ID', d.message_id ? '<span class="text-mono text-xs" style="word-break:break-all;">' + escHtml(d.message_id) + '</span>' : '-');
+            html += '</table>';
+            html += '</div>';
+
+            html += '<div class="log-detail-section">';
+            html += '<h4><i class="fas fa-server"></i> Relay Info</h4>';
+            html += '<table class="detail-table">';
+            html += detailRow('Credential', d.smtp_credential ? '<span class="text-mono">' + escHtml(d.smtp_credential) + '</span>' : '-');
+            html += detailRow('Source IP', d.source_ip ? '<span class="text-mono">' + escHtml(d.source_ip) + '</span>' : '-');
+            html += detailRow('Relay Server', d.relay_server ? '<span class="text-mono">' + escHtml(d.relay_server) + '</span>' : '-');
+            html += detailRow('Retry Count', String(d.retry_count));
+            html += '</table>';
+            html += '</div>';
+
+            if (d.raw_headers) {
+                html += '<div class="log-detail-section">';
+                html += '<h4><i class="fas fa-code"></i> Email Headers</h4>';
+                html += '<div class="raw-headers-block"><pre>' + escHtml(d.raw_headers) + '</pre></div>';
+                html += '</div>';
+            }
+
+            html += '</div>';
+            body.innerHTML = html;
+        })
+        .catch(function(err) {
+            body.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i>&nbsp; Failed to load email details.</div>';
+        });
+}
+
+function closeLogDetail() {
+    document.getElementById('logDetailModal').classList.remove('active');
+}
+
+/* Close modal on overlay click */
+document.getElementById('logDetailModal').addEventListener('click', function(e) {
+    if (e.target === this) closeLogDetail();
+});
+
+/* Close modal on Escape key */
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLogDetail();
+});
+
+function detailRow(label, value) {
+    return '<tr><td class="detail-label">' + label + '</td><td>' + value + '</td></tr>';
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+</script>
 {% endblock %}
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

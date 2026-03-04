@@ -1,10 +1,12 @@
 """
 Database models for the SMTP Mail Relay.
+Version 2.1.0
 
 Designed and built by Christopher McGrath
 """
 
 # Author: Christopher McGrath
+# Version: 2.1.0
 
 import datetime
 from flask_sqlalchemy import SQLAlchemy
@@ -202,6 +204,7 @@ class EmailLog(db.Model):
     relay_server = db.Column(db.String(255), nullable=True)
     retry_count = db.Column(db.Integer, default=0)
     message_id = db.Column(db.String(255), nullable=True)
+    raw_headers = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
         return f'<EmailLog {self.id} {self.status}>'

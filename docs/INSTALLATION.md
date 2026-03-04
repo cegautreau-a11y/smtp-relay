@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks you through installing and running the SMTP Mail Relay on a Windows Server.
+This guide walks you through installing and running the SMTP Mail Relay v2.1.0 on a Windows Server.
 
 ---
 
@@ -145,7 +145,7 @@ On first run, the application will:
 You will see a startup banner:
 ```
 ============================================================
-  SMTP Mail Relay
+  SMTP Mail Relay  v2.1.0
   Designed and built by Christopher McGrath
 ============================================================
   Web Interface : http://0.0.0.0:8025
@@ -262,6 +262,36 @@ Open the web interface and verify:
 | STARTTLS errors | Ensure `relay_destination.helo_hostname` is set. Python 3.14 requires valid hostnames for TLS |
 | "Authentication required" | Create SMTP credentials in the web interface under **SMTP Credentials** |
 | Emails stuck in queue | Check **relay_destination** settings. View error details in the **Queue** page |
+
+---
+
+## Upgrading from v1.0 to v2.1.0
+
+1. Stop the running application (`Ctrl+C` or stop the Windows service)
+2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`) with the v2.1.0 versions
+3. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
+4. Start the application with `python run.py`
+5. The database is automatically migrated on startup — the new `raw_headers` column is added to `email_logs`
+6. Existing log entries will show no headers in the detail modal; all new emails will capture full headers
+7. Failed queue entries are now retained until manually retried or deleted — they are no longer auto-purged
+
+No manual database changes are required. The migration is safe and idempotent.
+
+## Upgrading from v2.0.0 to v2.1.0
+
+1. Stop the running application
+2. Replace all source files with the v2.1.0 versions
+3. No database or config changes required
+4. Start the application — failed queue entries will now be retained instead of being auto-purged
+5. The Queue page now includes **Retry All Failed** and **Delete All Failed** bulk-action buttons
+
+## Upgrading from v2.0.1 to v2.1.0
+
+1. Stop the running application
+2. Replace all source files with the v2.1.0 versions
+3. No database or config changes required
+4. Start the application — the Queue page now includes bulk-action buttons for retrying or deleting all failed messages at once
+5. Individual retry and delete buttons remain available on each failed entry
 
 ---
 

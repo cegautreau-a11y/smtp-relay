@@ -1,257 +1,327 @@
-# SMTP Mail Relay
+# SMTP Mail Relay v2.1.0
 
-A lightweight, self-hosted SMTP mail relay with a full web management interface. Built for Windows Server with Python, it accepts mail from your applications and forwards it to an upstream SMTP server (Exchange, Microsoft 365, Google Workspace, Amazon SES, etc.).
+A full-featured SMTP mail relay server with a modern web management interface.
+Designed to run on **Windows Server** with just **Python 3.11** — no other
+software required.
 
-**Designed and built by Christopher McGrath**
+---
+
+## Quick Start (Windows)
+
+### 1. Extract the zip and open a terminal in the folder
+
+```
+cd C:\path\to\smtp-relay
+```
+
+### 2. Run the launcher
+
+```
+python.exe run.py
+```
+
+On the **first run** it will automatically `pip install` all dependencies.
+A default `config.json` will be created if one doesn't exist.
+
+### 3. Open the web interface
+
+Navigate to **http://localhost:8025** and log in:
+
+| Field    | Value   |
+|----------|---------|
+| Username | `admin` |
+| Password | `admin` |
+
+> **⚠️  Change the default password immediately after first login!**
+
+### 4. Configure
+
+1. Edit `config.json` in a text editor **before** starting, or
+2. Use the **Configuration** page in the web UI at runtime.
+
+---
+
+## Configuration — config.json
+
+All settings live in a single `config.json` file next to `run.py`.
+User accounts are **not** stored in this file — they are managed
+exclusively through the web interface.
+
+```jsonc
+{
+    "web": {
+        "host": "0.0.0.0",          // Web UI bind address
+        "port": 8025,                // Web UI port
+        "secret_key": "CHANGE-ME"   // Random secret for sessions
+    },
+    "smtp_listener": {
+        "host": "0.0.0.0",          // SMTP bind address
+        "port": 2525,                // SMTP listen port
+        "banner_hostname": "relay.local",  // 220 banner name
+        "require_auth": true,        // Require SMTP AUTH
+        "enable_tls": false,         // TLS on listener
+        "tls_cert_path": "",         // Path to cert.pem
+        "tls_key_path": ""           // Path to key.pem
+    },
+    "relay_destination": {
+        "host": "smtp.example.com",  // Upstream SMTP server
+        "port": 587,                 // Upstream port
+        "use_tls": false,            // Implicit TLS (port 465)
+        "use_starttls": true,        // STARTTLS (port 587)
+        "auth_user": "",             // Upstream login
+        "auth_password": "",         // Upstream password
+        "helo_hostname": "myserver.example.com"
+        // ↑ The server name used in HELO/EHLO when sending.
+        //   Should be a valid FQDN for best deliverability.
+    },
+    "limits": {
+        "max_message_size_bytes": 26214400,
+        "max_recipients_per_message": 100,
+        "global_rate_limit_per_hour": 1000,
+        "allowed_source_ips": []     // Empty = allow all
+    },
+    "queue": {
+        "retry_interval_seconds": 300,
+        "max_retries": 3
+    },
+    "logging": {
+        "level": "INFO",             // DEBUG, INFO, WARNING, ERROR
+        "log_file": "",              // Empty = console only
+        "log_retention_days": 30
+    },
+    "database": {
+        "path": "smtp_relay.db"      // SQLite file path
+    }
+}
+```
+
+### Key settings explained
+
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `web.port` | config.json | Port the web management UI listens on |
+| `smtp_listener.port` | config.json | Port the SMTP relay listens on for incoming mail |
+| `relay_destination.host` | config.json + Web UI | Upstream server to forward mail to |
+| `relay_destination.helo_hostname` | config.json + Web UI | **Server name** used in SMTP HELO/EHLO when sending |
+| `smtp_listener.banner_hostname` | config.json + Web UI | Name shown in the 220 banner to connecting clients |
+| `smtp_listener.require_auth` | config.json + Web UI | Whether clients must authenticate |
+| Allowed domains | Web UI only | Which sender domains can use the relay |
+| SMTP credentials | Web UI only | Auth accounts for connecting mail clients |
+| Web users | Web UI only | Login accounts for the management interface |
 
 ---
 
 ## Features
 
-- **SMTP Relay Server** — Async inbound listener (aiosmtpd) that accepts mail and forwards to your upstream server
-- **Web Dashboard** — Real-time statistics, 7-day volume chart, recent email activity, live SMTP status indicator
-- **Role-Based Access Control** — Four-tier permission system: Super Admin, Admin, Operator, Viewer
-- **SMTP Authentication** — Per-credential auth with bcrypt hashing and individual rate limits
-- **Sender Domain Allowlist** — Restrict which sender domains can use the relay
-- **Email Queue** — Automatic retry with configurable intervals for failed deliveries
-- **Full Audit Trail** — Searchable email logs with status tracking for every message
-- **Live Configuration** — Edit settings through the web UI; saved to both database and config.json
-- **TLS/STARTTLS** — Optional TLS on the listener and STARTTLS for upstream connections
-- **IP Allowlisting** — Restrict which source IPs can connect
-- **Auto-Dependency Install** — First-run automatic `pip install` of all requirements
-- **Windows Native** — No Unix signals or fork; runs as a foreground process or Windows service
-- **Python 3.11–3.14** — Tested and compatible with the latest Python releases
+### SMTP Relay Engine
+- Async SMTP server (aiosmtpd) — high performance, pure Python
+- **Configurable sending server name** (HELO/EHLO hostname)
+- Configurable destination relay (Gmail, O365, SendGrid, Postfix, etc.)
+- Domain allowlist — restrict which sender domains can relay
+- SMTP AUTH (LOGIN / PLAIN) — require client authentication
+- Per-credential and global rate limiting
+- Email queue with automatic retry and exponential backoff
+- **Failed email retention** — messages that fail after all retries are held in the queue until manually retried or deleted; never silently discarded
+- TLS / STARTTLS support (listener and upstream)
+- IP allowlist — restrict connecting source IPs
+- Configurable message size and recipient limits
+
+### Web Management Interface
+- **Dashboard** — real-time stats, 7-day chart, recent emails, server controls
+- **Configuration** — edit all relay settings from the browser
+- **Allowed Domains** — add / enable / disable / delete sender domains
+- **SMTP Credentials** — create auth accounts with per-credential rate limits
+- **Users** — create admin and regular accounts for the web UI
+- **Email Logs** — searchable, filterable, paginated log viewer with full email header detail view
+- **Queue** — view pending / failed deliveries, retry individual or all failed messages, delete individual or all failed
+- **Profile** — change your own password and email
+- **Server Control** — start / stop / restart SMTP from the dashboard
+- Responsive design — works on desktop, tablet, mobile
+
+### Email Header Details (v2.0)
+- Click the **Details** button on any email log entry to view a rich modal dialog
+- **Message Info** — status, timestamp, subject, sender, recipients, size, Message-ID
+- **Relay Info** — SMTP credential used, source IP, relay server, retry count
+- **Email Headers** — full raw email headers (From, To, Date, MIME-Version, Content-Type, X-Mailer, etc.) displayed in a dark-themed scrollable code block
+- Headers are captured and stored automatically when the relay processes each message
+- Modal supports Escape key and overlay click to dismiss
 
 ---
 
-## Quick Start
-
-### 1. Clone the Repository
-
-```powershell
-git clone https://github.com/cegautreau-a11y/smtp-relay.git
-cd smtp-relay
-```
-
-### 2. Create Your Configuration
-
-```powershell
-copy config.json.example config.json
-```
-
-Open `config.json` in a text editor and set the three required values:
-
-#### a) Secret Key
-
-Generate a random secret key:
-
-```powershell
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-Paste it into `config.json`:
-
-```json
-"web": {
-    "host": "0.0.0.0",
-    "port": 8025,
-    "secret_key": "your-generated-64-char-hex-string"
-}
-```
-
-#### b) SMTP Listener Host
-
-Set the bind address for the SMTP server. Use `0.0.0.0` to accept connections from any interface, or your server's specific IP:
-
-```json
-"smtp_listener": {
-    "host": "0.0.0.0",
-    "port": 2525,
-    "banner_hostname": "relay.yourdomain.com",
-    "require_auth": true
-}
-```
-
-#### c) Relay Destination
-
-Configure your upstream SMTP server:
-
-```json
-"relay_destination": {
-    "host": "smtp.office365.com",
-    "port": 587,
-    "use_tls": false,
-    "use_starttls": true,
-    "auth_user": "relay@yourdomain.com",
-    "auth_password": "your-app-password",
-    "helo_hostname": "mailrelay.yourdomain.com"
-}
-```
-
-### 3. Run
-
-```powershell
-python run.py
-```
-
-On first run, dependencies are installed automatically. The startup banner shows all connection details:
+## Architecture
 
 ```
-============================================================
-  SMTP Mail Relay
-  Designed and built by Christopher McGrath
-============================================================
-  Web Interface : http://0.0.0.0:8025
-  SMTP Listener : 0.0.0.0:2525
-  Relay Target  : smtp.office365.com:587
-  HELO Hostname : mailrelay.yourdomain.com
-  Default Login : admin / admin
-============================================================
+┌─────────────────────────────────────────────────────────┐
+│                  SMTP Mail Relay v2.1.0                  │
+│                                                         │
+│  ┌──────────────┐    ┌──────────────┐    ┌───────────┐  │
+│  │  SMTP Server  │───▶│  Email Queue  │───▶│  Upstream │  │
+│  │  (aiosmtpd)   │    │  (SQLite)     │    │  Relay    │  │
+│  │  Port 2525    │    │  + Retry      │    │  Server   │  │
+│  └──────────────┘    └──────────────┘    └───────────┘  │
+│         │                    │                           │
+│         ▼                    ▼                           │
+│  ┌──────────────┐    ┌──────────────┐                   │
+│  │  Auth Check   │    │  Email Logs   │                  │
+│  │  Domain Check │    │  (SQLite)     │                  │
+│  │  Rate Limit   │    │  + Headers    │                  │
+│  │  IP Filter    │    └──────────────┘                   │
+│  └──────────────┘           │                           │
+│                              ▼                           │
+│                    ┌──────────────────┐                  │
+│                    │  Web Interface    │                  │
+│                    │  (Flask)          │                  │
+│                    │  Port 8025        │                  │
+│                    └──────────────────┘                  │
+└─────────────────────────────────────────────────────────┘
 ```
-
-### 4. Log In
-
-Open `http://YOUR-SERVER-IP:8025` in your browser.
-
-- **Username:** `admin`
-- **Password:** `admin`
-
-> ⚠️ **Change the default password immediately** via the Profile page.
 
 ---
 
-## Common Upstream Configurations
+## Connecting Applications
 
-| Provider | Host | Port | TLS | STARTTLS |
-|---|---|---|---|---|
-| Microsoft 365 | `smtp.office365.com` | 587 | No | Yes |
-| Google Workspace | `smtp-relay.gmail.com` | 587 | No | Yes |
-| Amazon SES | `email-smtp.us-east-1.amazonaws.com` | 587 | No | Yes |
-| On-premises Exchange | `mail.yourdomain.com` | 25 | No | Optional |
+### Python (smtplib)
 
----
+```python
+import smtplib
+from email.mime.text import MIMEText
 
-## User Roles
+msg = MIMEText("Hello from the relay!")
+msg["Subject"] = "Test Email"
+msg["From"] = "sender@yourdomain.com"
+msg["To"] = "recipient@example.com"
 
-| Role | Access Level |
-|---|---|
-| **Viewer** | Read-only dashboard, logs, and queue |
-| **Operator** | Manage domains, SMTP credentials, and queue |
-| **Admin** | Full configuration, user management, server controls |
-| **Super Admin** | Manage all users including other Admins |
-
-See [docs/USER_ROLES.md](docs/USER_ROLES.md) for the full permission matrix.
-
----
-
-## Project Structure
-
+with smtplib.SMTP("your-server-ip", 2525) as smtp:
+    smtp.login("your-smtp-credential", "your-password")
+    smtp.send_message(msg)
 ```
-smtp-relay/
-├── run.py                  # Application launcher (entry point)
-├── app.py                  # Flask web application & routes
-├── models.py               # Database models & Role definitions
-├── smtp_server.py          # SMTP server, handler & queue processor
-├── config.json.example     # Configuration template (copy to config.json)
-├── requirements.txt        # Python dependencies
-├── templates/
-│   ├── base.html           # Shared layout with sidebar & header
-│   ├── login.html          # Authentication page
-│   ├── dashboard.html      # Statistics & charts
-│   ├── logs.html           # Email log viewer
-│   ├── queue.html          # Queue management
-│   ├── domains.html        # Domain allowlist
-│   ├── credentials.html    # SMTP credential management
-│   ├── config.html         # Configuration editor
-│   ├── users.html          # User management
-│   ├── profile.html        # User profile & password change
-│   ├── error.html          # Error page (authenticated)
-│   └── error_standalone.html  # Error page (unauthenticated)
-├── static/
-│   └── css/
-│       └── style.css       # Complete responsive stylesheet
-├── docs/
-│   ├── INSTALLATION.md     # Detailed setup guide
-│   ├── CONFIGURATION.md    # Full config.json reference
-│   ├── USER_ROLES.md       # Role permissions documentation
-│   └── ARCHITECTURE.md     # System design overview
-├── CHANGELOG.md            # Version history
-├── CONTRIBUTING.md         # Contributor guidelines
-├── LICENSE                 # MIT License
-└── .gitignore
+
+### Node.js (Nodemailer)
+
+```javascript
+const nodemailer = require("nodemailer");
+const transporter = nodemailer.createTransport({
+    host: "your-server-ip",
+    port: 2525,
+    auth: { user: "your-smtp-credential", pass: "your-password" },
+});
+transporter.sendMail({
+    from: "sender@yourdomain.com",
+    to: "recipient@example.com",
+    subject: "Test",
+    text: "Hello from the relay!",
+});
 ```
+
+### WordPress / PHP / Generic
+
+| Setting  | Value                         |
+|----------|-------------------------------|
+| Server   | Your server IP or hostname    |
+| Port     | `2525` (configurable)         |
+| Auth     | LOGIN / PLAIN                 |
+| Username | Your SMTP credential username |
+| Password | Your SMTP credential password |
+| TLS      | Optional (if configured)      |
 
 ---
 
 ## Running as a Windows Service
 
-For production, use [NSSM](https://nssm.cc/) to run the relay as a Windows service:
+To keep the relay running after you log out, you can use **NSSM**
+(Non-Sucking Service Manager) or the built-in `sc` command:
 
-```powershell
-nssm install SMTPRelay "C:\Python314\python.exe" "C:\smtp-relay\run.py"
-nssm set SMTPRelay AppDirectory "C:\smtp-relay"
-nssm start SMTPRelay
+```
+nssm install SmtpRelay "C:\Python311\python.exe" "C:\smtp-relay\run.py"
+nssm start SmtpRelay
 ```
 
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed service setup instructions.
+Or simply run it in a persistent terminal / scheduled task.
 
 ---
 
-## Firewall Configuration
+## File Structure
 
-Open the required ports in Windows Firewall:
-
-```powershell
-netsh advfirewall firewall add rule name="SMTP Relay - SMTP" dir=in action=allow protocol=tcp localport=2525
-netsh advfirewall firewall add rule name="SMTP Relay - Web" dir=in action=allow protocol=tcp localport=8025
+```
+smtp-relay\
+├── run.py                  ← Double-click to start
+├── config.json             ← All settings (edit this)
+├── requirements.txt        ← Python packages
+├── app.py                  ← Flask web application
+├── models.py               ← Database models
+├── smtp_server.py          ← SMTP relay engine
+├── smtp_relay.db           ← SQLite database (created on first run)
+├── README.md               ← This file
+├── CHANGELOG.md            ← Version history
+├── LICENSE                 ← MIT License
+├── docs\
+│   ├── ARCHITECTURE.md     ← System design overview
+│   ├── CONFIGURATION.md    ← Full config.json reference
+│   ├── INSTALLATION.md     ← Step-by-step setup guide
+│   └── USER_ROLES.md       ← Role-based permissions guide
+├── static\
+│   └── css\
+│       └── style.css
+└── templates\
+    ├── base.html
+    ├── login.html
+    ├── dashboard.html
+    ├── config.html
+    ├── domains.html
+    ├── credentials.html
+    ├── users.html
+    ├── logs.html
+    ├── queue.html
+    ├── profile.html
+    ├── error.html
+    └── error_standalone.html
 ```
 
 ---
 
-## Documentation
+## Upgrading
 
-| Document | Description |
-|---|---|
-| [Installation Guide](docs/INSTALLATION.md) | Step-by-step setup, firewall, service configuration, troubleshooting |
-| [Configuration Reference](docs/CONFIGURATION.md) | Complete config.json documentation with examples |
-| [User Roles](docs/USER_ROLES.md) | Role hierarchy, permission matrix, assignment rules |
-| [Architecture](docs/ARCHITECTURE.md) | System design, mail flow, component overview, technology stack |
-| [Changelog](CHANGELOG.md) | Version history and release notes |
+### From v1.0 to v2.1.0
+
+1. Replace all source files with the v2.1.0 versions
+2. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
+3. Start the application — the database is automatically migrated on startup
+4. The new `raw_headers` column is added to `email_logs` automatically
+5. Existing log entries will show "No headers available" in the detail modal; new emails will capture full headers
+6. Failed queue entries are now retained until manually retried or deleted — they are no longer auto-purged
+7. New "Retry All Failed" button available on the Queue page
+
+No manual database changes are required.
+
+### From v2.0.x to v2.1.0
+
+1. Replace all source files with the v2.1.0 versions
+2. No database or config changes required
+3. New "Retry All Failed" button on the Queue page lets you requeue all failed messages at once
+
+---
+
+## Security Recommendations
+
+1. **Change the default admin password** immediately
+2. **Change `secret_key`** in config.json to a long random string
+3. **Enable `require_auth`** to prevent open relay
+4. **Add allowed domains** to restrict sender addresses
+5. **Set `allowed_source_ips`** if only known hosts should connect
+6. **Use TLS** for both listener and upstream connections
+7. **Set rate limits** on SMTP credentials
+8. Run behind a reverse proxy with HTTPS for the web UI in production
+9. Review email logs regularly for suspicious activity
 
 ---
 
 ## Requirements
 
-- **Python 3.11+** (tested through 3.14)
-- **Windows Server 2016+** (also works on Windows 10/11 and Linux)
-- No external database server required (uses SQLite)
-
-### Python Dependencies
-
-| Package | Purpose |
-|---|---|
-| Flask 3.1 | Web framework |
-| Flask-Login 0.6 | Session authentication |
-| Flask-SQLAlchemy 3.1 | Database ORM |
-| aiosmtpd 1.4 | Async SMTP server |
-| bcrypt 4.2 | Password hashing |
-| Werkzeug 3.1 | WSGI utilities |
-| SQLAlchemy 2.0 | Database toolkit |
-
-All dependencies are installed automatically on first run, or manually with:
-
-```powershell
-pip install -r requirements.txt
-```
+- **Python 3.11+** (Windows or Linux)
+- No other software needed — all dependencies install via pip automatically
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-## Author
-
-**Christopher McGrath**
+MIT License — free for personal and commercial use.

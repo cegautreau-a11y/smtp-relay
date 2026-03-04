@@ -1,5 +1,6 @@
 """
 Flask web application for SMTP Relay management.
+Version 2.1.0
 
 Designed and built by Christopher McGrath
 
@@ -8,6 +9,7 @@ User accounts are managed exclusively through the web UI.
 """
 
 # Author: Christopher McGrath
+# Version: 2.1.0
 
 import datetime
 import json
@@ -127,10 +129,12 @@ def create_app(config_json: dict | None = None):
     if not os.path.isabs(db_path):
         db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db_path)
 
-    # Always generate a fresh secret key so all sessions are invalidated
-    # on server restart.  The config.json key is used as extra entropy.
+    # Use the stable secret key from config.json so sessions survive restarts.
     cfg_key = web.get('secret_key', '')
-    app.config['SECRET_KEY'] = secrets.token_hex(32) + cfg_key
+    if not cfg_key:
+        cfg_key = secrets.token_hex(32)
+        logger.warning("No secret_key in config.json — using a random key. Sessions will not survive restarts.")
+    app.config['SECRET_KEY'] = cfg_key
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=8)
@@ -153,6 +157,7 @@ def create_app(config_json: dict | None = None):
     with app.app_context():
         db.create_all()
         _migrate_roles()
+        _migrate_raw_headers()
         RelayConfig.initialize_defaults()
         if cfg:
             RelayConfig.load_from_dict(_flatten_config(cfg))
@@ -629,7 +634,7 @@ def create_app(config_json: dict | None = None):
         return render_template('queue.html',
             queued=EmailQueue.query.filter_by(status='queued').order_by(EmailQueue.next_retry_at).all(),
             processing=EmailQueue.query.filter_by(status='processing').all(),
-            failed=EmailQueue.query.filter_by(status='failed').order_by(EmailQueue.created_at.desc()).limit(50).all(),
+            failed=EmailQueue.query.filter_by(status='failed').order_by(EmailQueue.created_at.desc()).all(),
             json=json)
 
     @app.route('/queue/<int:qid>/retry', methods=['POST'])
@@ -658,13 +663,33 @@ def create_app(config_json: dict | None = None):
         flash('Deleted.', 'success')
         return redirect(url_for('queue'))
 
+    @app.route('/queue/retry-all', methods=['POST'])
+    @login_required
+    @operator_required
+    def retry_all_failed():
+        failed = EmailQueue.query.filter_by(status='failed').all()
+        count = 0
+        for e in failed:
+            e.status = 'queued'
+            e.retry_count = 0
+            e.next_retry_at = datetime.datetime.utcnow()
+            if e.log_id:
+                log = EmailLog.query.get(e.log_id)
+                if log:
+                    log.status = 'queued'
+                    log.status_message = 'Manually requeued (retry all)'
+            count += 1
+        db.session.commit()
+        flash(f'Requeued {count} failed message{"s" if count != 1 else ""} for delivery.', 'success')
+        return redirect(url_for('queue'))
+
     @app.route('/queue/flush', methods=['POST'])
     @login_required
     @operator_required
     def flush_queue():
         n = EmailQueue.query.filter(EmailQueue.status.in_(['failed'])).delete(synchronize_session=False)
         db.session.commit()
-        flash(f'Flushed {n} failed entries.', 'success')
+        flash(f'Deleted {n} failed entr{"ies" if n != 1 else "y"} permanently.', 'success')
         return redirect(url_for('queue'))
 
     # ── Server control ─────────────────────────────────────────
@@ -732,6 +757,32 @@ def create_app(config_json: dict | None = None):
             status_message=r.status_message,
         ) for r in rows])
 
+    @app.route('/api/logs/<int:log_id>/detail')
+    @login_required
+    def api_log_detail(log_id):
+        log = EmailLog.query.get_or_404(log_id)
+        recips = []
+        try:
+            recips = json.loads(log.recipients) if log.recipients else []
+        except (json.JSONDecodeError, TypeError):
+            recips = [log.recipients] if log.recipients else []
+        return jsonify(
+            id=log.id,
+            timestamp=log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else '',
+            sender=log.sender,
+            recipients=recips,
+            subject=log.subject or '(no subject)',
+            size_bytes=log.size_bytes or 0,
+            status=log.status,
+            status_message=log.status_message or '',
+            smtp_credential=log.smtp_credential or '',
+            source_ip=log.source_ip or '',
+            relay_server=log.relay_server or '',
+            message_id=log.message_id or '',
+            retry_count=log.retry_count or 0,
+            raw_headers=log.raw_headers or '',
+        )
+
     # ── Profile ────────────────────────────────────────────────
     @app.route('/profile', methods=['GET', 'POST'])
     @login_required
@@ -781,9 +832,26 @@ def create_app(config_json: dict | None = None):
 
     @app.errorhandler(500)
     def err500(e):
-        return _render_error(500, 'Internal Server Error')
+        try:
+            return _render_error(500, 'Internal Server Error')
+        except Exception:
+            return '<h1>500 Internal Server Error</h1>', 500
 
     return app
+
+
+def _migrate_raw_headers():
+    """Add raw_headers column to email_logs if missing (for existing databases)."""
+    from sqlalchemy import inspect as sa_inspect
+    inspector = sa_inspect(db.engine)
+    columns = [c['name'] for c in inspector.get_columns('email_logs')]
+    if 'raw_headers' not in columns:
+        logger.info('Migrating email_logs table: adding raw_headers column …')
+        db.session.execute(
+            db.text("ALTER TABLE email_logs ADD COLUMN raw_headers TEXT")
+        )
+        db.session.commit()
+        logger.info('Migration complete: raw_headers column added to email_logs')
 
 
 def _migrate_roles():

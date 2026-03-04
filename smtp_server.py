@@ -1,5 +1,6 @@
 """
 Async SMTP Relay Server – Windows-compatible.
+Version 2.1.0
 
 Designed and built by Christopher McGrath
 
@@ -7,6 +8,7 @@ No Unix signals, no fork.  Uses only threading + aiosmtpd.
 """
 
 # Author: Christopher McGrath
+# Version: 2.1.0
 
 import datetime
 import email
@@ -142,6 +144,16 @@ class RelayHandler:
                 subject = msg.get('Subject', '(no subject)')
                 message_id = msg.get('Message-ID', '')
 
+                # Extract all email headers as a single text block
+                raw_headers = ''
+                try:
+                    header_lines = []
+                    for key, value in msg.items():
+                        header_lines.append(f'{key}: {value}')
+                    raw_headers = '\n'.join(header_lines)
+                except Exception as hdr_exc:
+                    logger.warning("Failed to extract headers: %s", hdr_exc)
+
                 smtp_user = None
                 auth = getattr(session, 'auth_data', None)
                 if auth:
@@ -159,6 +171,7 @@ class RelayHandler:
                     source_ip=peer_ip,
                     relay_server=RelayConfig.get('relay_host', 'localhost'),
                     message_id=message_id,
+                    raw_headers=raw_headers,
                 )
                 db.session.add(log_entry)
                 db.session.flush()
@@ -454,8 +467,10 @@ class QueueProcessor:
         with self.app.app_context():
             days = RelayConfig.get_int('log_retention_days', 30)
             cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+            # Only purge 'sent' queue entries — failed entries are retained
+            # until an administrator manually retries or deletes them.
             dq = EmailQueue.query.filter(
-                EmailQueue.status.in_(['sent', 'failed']),
+                EmailQueue.status == 'sent',
                 EmailQueue.created_at < cutoff,
             ).delete(synchronize_session=False)
             dl = EmailLog.query.filter(
@@ -463,4 +478,5 @@ class QueueProcessor:
             ).delete(synchronize_session=False)
             if dq or dl:
                 db.session.commit()
-                logger.info("Cleaned %s queue + %s log entries", dq, dl)
+                logger.info("Cleaned %s queue + %s log entries "
+                            "(failed entries retained)", dq, dl)

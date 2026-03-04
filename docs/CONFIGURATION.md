@@ -1,5 +1,7 @@
 # Configuration Reference
 
+**SMTP Mail Relay v2.1.0**
+
 All settings are stored in `config.json` in the project root directory. The application reads this file on startup and seeds the values into the database. Settings can also be changed at runtime through the web interface under **Configuration**.
 
 ---
@@ -170,7 +172,11 @@ These settings control where the relay forwards mail for final delivery.
 - Retry 2: 600 seconds (10 minutes)
 - Retry 3: 900 seconds (15 minutes)
 
-Failed messages can be manually retried from the **Queue** page in the web interface.
+**After all retries are exhausted**, the message is marked as **failed** and held in the queue with its full message data intact. Failed messages are **never automatically discarded** — they remain in the system until an administrator takes action from the **Queue** page:
+- **Retry** — Requeue an individual failed message for another delivery attempt
+- **Retry All Failed** — Requeue all failed messages at once for redelivery
+- **Delete** — Permanently remove an individual failed message
+- **Delete All Failed** — Permanently remove all failed messages
 
 ---
 
@@ -180,7 +186,7 @@ Failed messages can be manually retried from the **Queue** page in the web inter
 |---|---|---|---|
 | `level` | string | `"INFO"` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `log_file` | string | `""` | Path to a log file. Empty = console output only |
-| `log_retention_days` | integer | `30` | Number of days to keep email log entries in the database |
+| `log_retention_days` | integer | `30` | Number of days to keep email log entries and sent queue entries in the database |
 
 **Example:**
 ```json
@@ -190,6 +196,8 @@ Failed messages can be manually retried from the **Queue** page in the web inter
     "log_retention_days": 90
 }
 ```
+
+> **Note:** The retention cleanup only automatically purges successfully **sent** queue entries. **Failed** queue entries are never automatically deleted — they are retained indefinitely until an administrator manually retries or deletes them from the Queue page. This ensures no undelivered email is ever silently discarded.
 
 ---
 

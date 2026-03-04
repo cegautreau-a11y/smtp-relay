@@ -4,12 +4,20 @@
 
 {% block header_actions %}
 {% if current_user.has_role('operator') and failed %}
-<form method="POST" action="{{ url_for('flush_queue') }}" style="display:inline;"
-      onsubmit="return confirm('Remove all failed queue entries?')">
-    <button type="submit" class="btn btn-danger btn-sm">
-        <i class="fas fa-trash"></i> Flush Failed
-    </button>
-</form>
+<div class="d-flex gap-1">
+    <form method="POST" action="{{ url_for('retry_all_failed') }}" style="display:inline;"
+          onsubmit="return confirm('Retry sending all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}?')">
+        <button type="submit" class="btn btn-primary btn-sm">
+            <i class="fas fa-redo"></i> Retry All Failed
+        </button>
+    </form>
+    <form method="POST" action="{{ url_for('flush_queue') }}" style="display:inline;"
+          onsubmit="return confirm('Permanently delete all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}? This cannot be undone.')">
+        <button type="submit" class="btn btn-danger btn-sm">
+            <i class="fas fa-trash"></i> Delete All Failed
+        </button>
+    </form>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -123,7 +131,7 @@
 <div class="card">
     <div class="card-header">
         <h2><i class="fas fa-exclamation-triangle"></i>&nbsp; Failed Deliveries</h2>
-        <span class="badge badge-failed">{{ failed|length }}</span>
+        <span class="badge badge-failed">{{ failed|length }} failed</span>
     </div>
     <div class="card-body" style="padding:0;">
         {% if failed %}
@@ -158,12 +166,13 @@
                         <td>
                             <div class="d-flex gap-1">
                                 <form method="POST" action="{{ url_for('retry_queue', qid=entry.id) }}">
-                                    <button type="submit" class="btn btn-outline btn-xs">
+                                    <button type="submit" class="btn btn-outline btn-xs" title="Retry this message">
                                         <i class="fas fa-redo"></i> Retry
                                     </button>
                                 </form>
-                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}">
-                                    <button type="submit" class="btn btn-danger btn-xs">
+                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
+                                      onsubmit="return confirm('Permanently delete this message?')">
+                                    <button type="submit" class="btn btn-danger btn-xs" title="Delete permanently">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </form>

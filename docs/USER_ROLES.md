@@ -1,5 +1,7 @@
 # User Roles & Permissions
 
+**SMTP Mail Relay v2.1.0**
+
 The SMTP Mail Relay uses a four-tier role-based access control (RBAC) system. Each user is assigned exactly one role that determines what they can see and do in the web interface.
 
 ---
@@ -30,7 +32,8 @@ A higher-level role inherits all permissions of the roles below it.
 | View SMTP credentials list | ✅ | ✅ | ✅ | ✅ |
 | Add/edit/delete domains | ❌ | ✅ | ✅ | ✅ |
 | Add/edit/delete SMTP credentials | ❌ | ✅ | ✅ | ✅ |
-| Retry/delete/flush queue entries | ❌ | ✅ | ✅ | ✅ |
+| Retry/delete individual queue entries | ❌ | ✅ | ✅ | ✅ |
+| Retry All Failed / Delete All Failed | ❌ | ✅ | ✅ | ✅ |
 | Start/stop/restart SMTP server | ❌ | ❌ | ✅ | ✅ |
 | Edit relay configuration | ❌ | ❌ | ✅ | ✅ |
 | Reload/save config.json | ❌ | ❌ | ✅ | ✅ |
