@@ -21,7 +21,7 @@ This guide walks you through installing and running the SMTP Mail Relay v2.1.0 o
 
 ### Option A: Clone from GitHub
 ```powershell
-git clone https://github.com/YOUR-USERNAME/smtp-relay.git
+git clone https://github.com/cegautreau-a11y/smtp-relay.git
 cd smtp-relay
 ```
 
