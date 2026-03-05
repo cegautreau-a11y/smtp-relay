@@ -1,6 +1,6 @@
 # User Roles & Permissions
 
-**SMTP Mail Relay v2.1.0**
+**SMTP Mail Relay v2.2.0**
 
 The SMTP Mail Relay uses a four-tier role-based access control (RBAC) system. Each user is assigned exactly one role that determines what they can see and do in the web interface.
 
@@ -27,13 +27,16 @@ A higher-level role inherits all permissions of the roles below it.
 |---|---|---|---|---|
 | View dashboard & statistics | ✅ | ✅ | ✅ | ✅ |
 | View email logs | ✅ | ✅ | ✅ | ✅ |
+| View email log detail (headers, Message-ID) | ✅ | ✅ | ✅ | ✅ |
 | View email queue | ✅ | ✅ | ✅ | ✅ |
 | View allowed domains list | ✅ | ✅ | ✅ | ✅ |
 | View SMTP credentials list | ✅ | ✅ | ✅ | ✅ |
 | Add/edit/delete domains | ❌ | ✅ | ✅ | ✅ |
 | Add/edit/delete SMTP credentials | ❌ | ✅ | ✅ | ✅ |
-| Retry/delete individual queue entries | ❌ | ✅ | ✅ | ✅ |
-| Retry All Failed / Delete All Failed | ❌ | ✅ | ✅ | ✅ |
+| Retry individual failed queue entry | ❌ | ✅ | ✅ | ✅ |
+| Delete individual queue entry | ❌ | ✅ | ✅ | ✅ |
+| Retry All Failed (bulk requeue) | ❌ | ✅ | ✅ | ✅ |
+| Delete All Failed (bulk delete) | ❌ | ✅ | ✅ | ✅ |
 | Start/stop/restart SMTP server | ❌ | ❌ | ✅ | ✅ |
 | Edit relay configuration | ❌ | ❌ | ✅ | ✅ |
 | Reload/save config.json | ❌ | ❌ | ✅ | ✅ |
@@ -43,6 +46,22 @@ A higher-level role inherits all permissions of the roles below it.
 | Manage Admin users | ❌ | ❌ | ❌ | ✅ |
 | Manage Super Admin users | ❌ | ❌ | ❌ | ✅ |
 | Change own password & email | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## Role Descriptions
+
+### Viewer
+Read-only access. Viewers can monitor the system — watching the dashboard, browsing email logs, and checking the queue — but cannot make any changes. Suitable for monitoring staff or stakeholders who need visibility without the ability to modify anything.
+
+### Operator
+All Viewer permissions plus the ability to manage the day-to-day operation of the relay. Operators can add and remove allowed domains, create and manage SMTP credentials, and handle the failed email queue — including retrying individual messages, retrying all failed messages at once, or permanently deleting failed entries. Operators cannot change relay configuration, restart the SMTP server, or manage user accounts.
+
+### Admin
+All Operator permissions plus full control over the relay configuration, SMTP server lifecycle (start/stop/restart), and user management for Viewer and Operator accounts. Admins can create new users and assign them Viewer or Operator roles. Admins cannot manage other Admin or Super Admin accounts.
+
+### Super Admin
+All Admin permissions plus the ability to manage Admin and Super Admin accounts. Super Admins have unrestricted access to every feature in the system. The default `admin` account created on first run is a Super Admin.
 
 ---
 

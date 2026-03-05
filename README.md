@@ -1,7 +1,7 @@
-# SMTP Mail Relay v2.1.0
+# SMTP Mail Relay v2.2.0
 
 A full-featured SMTP mail relay server with a modern web management interface.
-Designed to run on **Windows Server** with just **Python 3.11** — no other
+Designed to run on **Windows Server** with just **Python 3.9 or later** — no other
 software required.
 
 ---
@@ -20,8 +20,12 @@ cd C:\path\to\smtp-relay
 python.exe run.py
 ```
 
-On the **first run** it will automatically `pip install` all dependencies.
-A default `config.json` will be created if one doesn't exist.
+On the **first run** it will automatically `pip install --upgrade` all dependencies.
+A default `config.json` will be created if one does not exist.
+
+> **Python 3.14 users:** `run.py` detects Python 3.14+ and automatically upgrades
+> packages to versions that support the new Python ABI. This happens on every startup
+> and is fast when packages are already up to date.
 
 ### 3. Open the web interface
 
@@ -116,7 +120,7 @@ exclusively through the web interface.
 ### SMTP Relay Engine
 - Async SMTP server (aiosmtpd) — high performance, pure Python
 - **Configurable sending server name** (HELO/EHLO hostname)
-- Configurable destination relay (Gmail, O365, SendGrid, Postfix, etc.)
+- Configurable destination relay (Gmail, O365, SendGrid, Postfix, Exchange, etc.)
 - Domain allowlist — restrict which sender domains can relay
 - SMTP AUTH (LOGIN / PLAIN) — require client authentication
 - Per-credential and global rate limiting
@@ -131,20 +135,25 @@ exclusively through the web interface.
 - **Configuration** — edit all relay settings from the browser
 - **Allowed Domains** — add / enable / disable / delete sender domains
 - **SMTP Credentials** — create auth accounts with per-credential rate limits
-- **Users** — create admin and regular accounts for the web UI
+- **Users** — create and manage accounts with role-based permissions
 - **Email Logs** — searchable, filterable, paginated log viewer with full email header detail view
 - **Queue** — view pending / failed deliveries, retry individual or all failed messages, delete individual or all failed
 - **Profile** — change your own password and email
 - **Server Control** — start / stop / restart SMTP from the dashboard
 - Responsive design — works on desktop, tablet, mobile
 
-### Email Header Details (v2.0)
+### Email Header Details
 - Click the **Details** button on any email log entry to view a rich modal dialog
 - **Message Info** — status, timestamp, subject, sender, recipients, size, Message-ID
 - **Relay Info** — SMTP credential used, source IP, relay server, retry count
-- **Email Headers** — full raw email headers (From, To, Date, MIME-Version, Content-Type, X-Mailer, etc.) displayed in a dark-themed scrollable code block
+- **Email Headers** — full raw email headers displayed in a dark-themed scrollable code block with field count
 - Headers are captured and stored automatically when the relay processes each message
 - Modal supports Escape key and overlay click to dismiss
+
+### Reliability & Stability (v2.2.0)
+- **No page hanging** — delivery threads release the database connection before making SMTP network calls; web requests are never blocked by in-flight deliveries
+- **SQLite busy timeout** — 20-second timeout prevents indefinite hangs if a brief lock contention occurs
+- **Python 3.14 compatible** — `run.py` automatically upgrades packages on startup to ensure ABI compatibility
 
 ---
 
@@ -152,7 +161,7 @@ exclusively through the web interface.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  SMTP Mail Relay v2.1.0                  │
+│                  SMTP Mail Relay v2.2.0                  │
 │                                                         │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────┐  │
 │  │  SMTP Server  │───▶│  Email Queue  │───▶│  Upstream │  │
@@ -175,6 +184,8 @@ exclusively through the web interface.
 │                    └──────────────────┘                  │
 └─────────────────────────────────────────────────────────┘
 ```
+
+All components run in a single Python process using threads — no separate services, no inter-process communication, no external dependencies beyond pip packages.
 
 ---
 
@@ -228,15 +239,16 @@ transporter.sendMail({
 
 ## Running as a Windows Service
 
-To keep the relay running after you log out, you can use **NSSM**
-(Non-Sucking Service Manager) or the built-in `sc` command:
+To keep the relay running after you log out, use **NSSM**
+(Non-Sucking Service Manager):
 
 ```
 nssm install SmtpRelay "C:\Python311\python.exe" "C:\smtp-relay\run.py"
 nssm start SmtpRelay
 ```
 
-Or simply run it in a persistent terminal / scheduled task.
+Or use Task Scheduler with "Run whether user is logged on or not". See
+[docs/INSTALLATION.md](docs/INSTALLATION.md) for full service setup instructions.
 
 ---
 
@@ -281,23 +293,31 @@ smtp-relay\
 
 ## Upgrading
 
-### From v1.0 to v2.1.0
+### From v1.0 to v2.2.0
 
-1. Replace all source files with the v2.1.0 versions
+1. Replace all source files with the v2.2.0 versions
 2. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
 3. Start the application — the database is automatically migrated on startup
-4. The new `raw_headers` column is added to `email_logs` automatically
+4. The `raw_headers` and `message_id` columns are added to `email_logs` automatically
 5. Existing log entries will show "No headers available" in the detail modal; new emails will capture full headers
 6. Failed queue entries are now retained until manually retried or deleted — they are no longer auto-purged
-7. New "Retry All Failed" button available on the Queue page
+7. "Retry All Failed" and "Delete All Failed" bulk-action buttons are available on the Queue page
 
 No manual database changes are required.
 
-### From v2.0.x to v2.1.0
+### From v2.0.x to v2.2.0
 
-1. Replace all source files with the v2.1.0 versions
-2. No database or config changes required
-3. New "Retry All Failed" button on the Queue page lets you requeue all failed messages at once
+1. Replace all source files with the v2.2.0 versions
+2. No config changes required
+3. The `message_id` column is added automatically on startup — Message-ID will now populate correctly
+4. Page hanging issues are resolved — delivery threads no longer hold the database lock during SMTP connections
+
+### From v2.1.0 to v2.2.0
+
+1. Replace all source files with the v2.2.0 versions
+2. No config or database changes required
+3. The `message_id` column is added automatically on startup if missing
+4. Page hanging issues are resolved
 
 ---
 
@@ -308,7 +328,7 @@ No manual database changes are required.
 3. **Enable `require_auth`** to prevent open relay
 4. **Add allowed domains** to restrict sender addresses
 5. **Set `allowed_source_ips`** if only known hosts should connect
-6. **Use TLS** for both listener and upstream connections
+6. **Use TLS** for both listener and upstream connections where possible
 7. **Set rate limits** on SMTP credentials
 8. Run behind a reverse proxy with HTTPS for the web UI in production
 9. Review email logs regularly for suspicious activity
@@ -317,7 +337,8 @@ No manual database changes are required.
 
 ## Requirements
 
-- **Python 3.11+** (Windows or Linux)
+- **Python 3.9+** (3.14 supported — packages are auto-upgraded on startup)
+- Windows Server 2016+ or Windows 10/11 (also runs on Linux)
 - No other software needed — all dependencies install via pip automatically
 
 ---

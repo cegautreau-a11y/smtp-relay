@@ -6,28 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [2.2.0] — 2025-06-04
+## [2.2.0] — 2025-06-03
 
 ### Fixed
-- **Page hang / browser spinner on refresh** — Resolved the root causes of the web interface hanging or spinning indefinitely when refreshing a page while background email delivery was in progress. Four separate issues were addressed together:
-
-  1. **SQLite WAL mode enabled** — SQLite now runs in Write-Ahead Logging (WAL) journal mode. WAL allows concurrent reads while a write is in progress, eliminating the database lock contention that caused web requests to block behind background delivery threads. A `busy_timeout` of 8 seconds and `synchronous=NORMAL` are also set on every connection.
-
-  2. **Queue processor decoupled from delivery** — The `QueueProcessor._tick()` method previously called `_deliver()` directly and synchronously, meaning a 30-second SMTP connect timeout would hold a SQLite connection open for the full duration and block the queue thread. Delivery is now always dispatched in a daemon thread, matching the behaviour of the immediate post-DATA delivery path. The DB connection is released as soon as the pending IDs are fetched.
-
-  3. **SQLAlchemy connection pool hardened** — Added `pool_timeout=10`, `pool_recycle=60`, and `pool_pre_ping=True` to the SQLAlchemy engine options. Web requests now fail fast with a 500 error rather than waiting indefinitely for a pool slot, and stale connections are recycled automatically.
-
-  4. **`/api/stats` made fault-tolerant** — The stats API endpoint (polled every 15 seconds by the base layout) is now wrapped in a try/except. If a DB query fails or times out it returns a graceful JSON response with `error: true` and zeroed counters rather than hanging or returning a 500, which previously caused the browser to queue up multiple stalled requests.
+- **Page hanging / server not responding** — Delivery threads no longer hold the SQLite database session open during the SMTP connection (which could block for up to 30 seconds). The DB session is now closed before the network connection is made and a fresh session is opened to write the result. The queue processor (`_tick`) also now spawns threads instead of calling `_deliver` synchronously, preventing the background thread from blocking web requests.
+- **SQLite busy timeout** — Added a 20-second busy timeout to the SQLAlchemy engine so that web requests waiting for a brief DB lock return an error instead of hanging indefinitely.
+- **Message-ID always blank** — The database migration was only adding the `raw_headers` column but not `message_id`. The migration function (`_migrate_schema`) now also adds `message_id` to existing databases, so the field is correctly populated for all new messages.
 
 ### Changed
-- **Dashboard stat cards auto-refresh** — The incomplete `// Auto-refresh stats every 30 seconds` comment on the dashboard has been replaced with a working implementation. The four live stat cards (Sent Today, Failed Today, This Hour, Queued) now update every 30 seconds via the `/api/stats` endpoint without requiring a full page reload.
+- **Email Headers panel** — The headers block in the log detail modal now shows a field count, has a taller scrollable area (420 px), and displays a styled scrollbar. When no headers are available a descriptive message is shown instead of an empty section.
+- **Log detail modal** — Modal is slightly wider (780 px) and the body now scrolls independently while the header and footer remain fixed, making it easier to read long header lists.
+- **Migration function renamed** — `_migrate_raw_headers()` renamed to `_migrate_schema()` to reflect that it now manages all schema migrations in one place.
 - **Version bump** — All source files updated to v2.2.0.
-
-### Technical Details
-- `models.py` — Added `@event.listens_for(Engine, "connect")` listener that sets `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=8000`, and `PRAGMA synchronous=NORMAL` on every new SQLite connection.
-- `smtp_server.py` — `QueueProcessor._tick()` now collects pending queue IDs within a scoped `app_context`, closes the context, then spawns a `threading.Thread` per ID rather than calling `_deliver()` inline.
-- `app.py` — Added `SQLALCHEMY_ENGINE_OPTIONS` with `connect_args`, `pool_timeout`, `pool_recycle`, and `pool_pre_ping`. Wrapped `/api/stats` DB queries in try/except with a safe fallback response.
-- `templates/dashboard.html` — Added `id` attributes to the four live stat card `<div class="stat-value">` elements; implemented the 30-second `setInterval` fetch loop to update them.
 
 ---
 

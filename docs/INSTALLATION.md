@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks you through installing and running the SMTP Mail Relay v2.1.0 on a Windows Server.
+This guide walks you through installing and running the SMTP Mail Relay v2.2.0 on a Windows Server.
 
 ---
 
@@ -9,11 +9,13 @@ This guide walks you through installing and running the SMTP Mail Relay v2.1.0 o
 | Requirement | Details |
 |---|---|
 | **Operating System** | Windows Server 2016 or later (also works on Windows 10/11 for testing) |
-| **Python** | 3.11 or later (3.14 supported). Download from [python.org](https://www.python.org/downloads/) |
+| **Python** | 3.9 or later (3.14 supported). Download from [python.org](https://www.python.org/downloads/) |
 | **Network** | The server must be reachable on the SMTP listener port (default 2525) from your applications |
 | **Firewall** | Open the SMTP listener port and web interface port in Windows Firewall |
 
 > **Tip:** During Python installation, check **"Add Python to PATH"** and **"Install for all users"**.
+
+> **Python 3.14 users:** The launcher automatically upgrades all packages to versions compatible with Python 3.14 on every startup. No manual steps are required.
 
 ---
 
@@ -21,7 +23,7 @@ This guide walks you through installing and running the SMTP Mail Relay v2.1.0 o
 
 ### Option A: Clone from GitHub
 ```powershell
-git clone https://github.com/cegautreau-a11y/smtp-relay.git
+git clone https://github.com/YOUR-USERNAME/smtp-relay.git
 cd smtp-relay
 ```
 
@@ -58,7 +60,7 @@ Paste the output into your `config.json`:
 }
 ```
 
-> **Security Note:** A random secret key is generated on each server restart for session security. The `secret_key` in config.json is used as additional entropy. Always set it to a unique random value in production.
+> **Security Note:** Always set `secret_key` to a unique random value in production. All user sessions are invalidated on server restart by design.
 
 ### 2b. SMTP Listener Host (Required)
 
@@ -114,18 +116,21 @@ Configure where the relay forwards mail. This is your upstream SMTP server (e.g.
 
 ## Step 3 — Install Dependencies
 
-Dependencies are installed automatically on first run. To install them manually:
+Dependencies are installed and upgraded automatically on every run. To install them manually:
 
 ```powershell
-pip install -r requirements.txt
+pip install --upgrade -r requirements.txt
 ```
 
 This installs:
 - **Flask** — Web framework
 - **Flask-Login** — Session authentication
 - **Flask-SQLAlchemy** — Database ORM
+- **SQLAlchemy** — Database engine (2.0.37+ required for Python 3.14)
 - **aiosmtpd** — Async SMTP server
 - **bcrypt** — Password hashing
+
+> **Note:** `requirements.txt` uses minimum version constraints (`>=`) rather than pinned versions. This ensures pip always installs a version compatible with your Python installation, including Python 3.14.
 
 ---
 
@@ -136,7 +141,7 @@ python run.py
 ```
 
 On first run, the application will:
-1. Install any missing pip packages automatically
+1. Upgrade pip packages to compatible versions automatically
 2. Create the SQLite database (`smtp_relay.db`)
 3. Create a default admin account
 4. Start the SMTP listener
@@ -145,7 +150,7 @@ On first run, the application will:
 You will see a startup banner:
 ```
 ============================================================
-  SMTP Mail Relay  v2.1.0
+  SMTP Mail Relay  v2.2.0
   Designed and built by Christopher McGrath
 ============================================================
   Web Interface : http://0.0.0.0:8025
@@ -188,7 +193,7 @@ netsh advfirewall firewall add rule name="SMTP Relay - Web" dir=in action=allow 
 
 ## Step 7 — Run as a Windows Service (Optional)
 
-For production, you should run the relay as a Windows service so it starts automatically on boot.
+For production, run the relay as a Windows service so it starts automatically on boot.
 
 ### Using NSSM (Non-Sucking Service Manager)
 
@@ -259,39 +264,52 @@ Open the web interface and verify:
 | `WinError 10049` — Address not valid | The bind address doesn't exist on this machine. Use `0.0.0.0` or `127.0.0.1` |
 | SMTP shows "Stopped" after start | Check the logs for bind errors. Verify the port is not blocked |
 | Can't connect from other machines | Check Windows Firewall rules. Verify `smtp_listener.host` is not `127.0.0.1` |
-| STARTTLS errors | Ensure `relay_destination.helo_hostname` is set. Python 3.14 requires valid hostnames for TLS |
+| STARTTLS errors | Ensure `relay_destination.helo_hostname` is set to a valid FQDN |
 | "Authentication required" | Create SMTP credentials in the web interface under **SMTP Credentials** |
 | Emails stuck in queue | Check **relay_destination** settings. View error details in the **Queue** page |
+| Page hangs / server not responding | Fixed in v2.2.0. Ensure you are running the latest version |
+| `ImportError` or crash on startup | Run `pip install --upgrade -r requirements.txt` manually. Python 3.14 requires SQLAlchemy 2.0.37+ |
+| Message-ID always blank in logs | Fixed in v2.2.0. The `message_id` column is added automatically on startup |
 
 ---
 
-## Upgrading from v1.0 to v2.1.0
+## Upgrading from v1.0 to v2.2.0
 
 1. Stop the running application (`Ctrl+C` or stop the Windows service)
-2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`) with the v2.1.0 versions
+2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`, `requirements.txt`) with the v2.2.0 versions
 3. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
 4. Start the application with `python run.py`
-5. The database is automatically migrated on startup — the new `raw_headers` column is added to `email_logs`
+5. The database is automatically migrated on startup — `raw_headers` and `message_id` columns are added to `email_logs`
 6. Existing log entries will show no headers in the detail modal; all new emails will capture full headers
 7. Failed queue entries are now retained until manually retried or deleted — they are no longer auto-purged
 
 No manual database changes are required. The migration is safe and idempotent.
 
-## Upgrading from v2.0.0 to v2.1.0
+## Upgrading from v2.0.0 to v2.2.0
 
 1. Stop the running application
-2. Replace all source files with the v2.1.0 versions
-3. No database or config changes required
-4. Start the application — failed queue entries will now be retained instead of being auto-purged
-5. The Queue page now includes **Retry All Failed** and **Delete All Failed** bulk-action buttons
+2. Replace all source files with the v2.2.0 versions
+3. No config changes required
+4. Start the application — `message_id` column is added automatically; Message-ID will now populate correctly
+5. Page hanging issues are resolved
+6. "Retry All Failed" and "Delete All Failed" bulk-action buttons are now available on the Queue page
 
-## Upgrading from v2.0.1 to v2.1.0
+## Upgrading from v2.0.1 to v2.2.0
 
 1. Stop the running application
-2. Replace all source files with the v2.1.0 versions
-3. No database or config changes required
-4. Start the application — the Queue page now includes bulk-action buttons for retrying or deleting all failed messages at once
-5. Individual retry and delete buttons remain available on each failed entry
+2. Replace all source files with the v2.2.0 versions
+3. No config changes required
+4. Start the application — `message_id` column is added automatically
+5. Page hanging issues are resolved
+
+## Upgrading from v2.1.0 to v2.2.0
+
+1. Stop the running application
+2. Replace all source files with the v2.2.0 versions
+3. No config or database changes required
+4. Start the application — `message_id` column is added automatically if missing
+5. Delivery threads no longer hold the database lock during SMTP connections — page hanging issues are resolved
+6. Python 3.14 startup crash is fixed — packages are now auto-upgraded on every run
 
 ---
 

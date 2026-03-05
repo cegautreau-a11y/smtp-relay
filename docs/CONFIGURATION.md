@@ -1,6 +1,6 @@
 # Configuration Reference
 
-**SMTP Mail Relay v2.1.0**
+**SMTP Mail Relay v2.2.0**
 
 All settings are stored in `config.json` in the project root directory. The application reads this file on startup and seeds the values into the database. Settings can also be changed at runtime through the web interface under **Configuration**.
 
@@ -36,7 +36,7 @@ When you save settings in the web interface, they are written to both the databa
 }
 ```
 
-> **Note:** The application generates a random session secret on each restart for additional security. The `secret_key` from config.json is combined with this random value. This means all user sessions are invalidated on server restart, which is by design.
+> **Note:** Changes to `web.host`, `web.port`, and `web.secret_key` require a full application restart to take effect. All user sessions are invalidated on server restart by design.
 
 ---
 
@@ -75,6 +75,8 @@ These settings control the SMTP server that your applications connect to for sen
 | `"127.0.0.1"` | Accept connections only from the local machine (testing) |
 | `"192.168.1.50"` | Accept connections only on a specific network interface |
 
+> **Windows Note:** If binding to `0.0.0.0` fails, the application automatically retries with `127.0.0.1`. SMTP listener changes require an SMTP server restart (use the Restart button on the Dashboard).
+
 ---
 
 ### `relay_destination` — Upstream SMTP Server
@@ -89,7 +91,7 @@ These settings control where the relay forwards mail for final delivery.
 | `use_starttls` | boolean | `true` | Upgrade the connection to TLS using STARTTLS. Typically used with port 587 |
 | `auth_user` | string | `""` | Username for authenticating with the upstream server. Leave empty for no auth |
 | `auth_password` | string | `""` | Password for authenticating with the upstream server |
-| `helo_hostname` | string | `"myserver.example.com"` | Hostname sent in the EHLO/HELO command to the upstream server |
+| `helo_hostname` | string | `"myserver.example.com"` | Hostname sent in the EHLO/HELO command to the upstream server. Should be a valid FQDN |
 
 **Example — Microsoft 365:**
 ```json
@@ -126,6 +128,8 @@ These settings control where the relay forwards mail for final delivery.
 | Both `false` | 25 | Plain text connection (use only on trusted networks) |
 
 > **Important:** Do not set both `use_tls` and `use_starttls` to `true`. Use one or the other.
+
+> **Python 3.14 Note:** `helo_hostname` must be a valid FQDN when using STARTTLS. Python 3.14 enforces stricter hostname validation for TLS connections.
 
 ---
 
@@ -173,10 +177,15 @@ These settings control where the relay forwards mail for final delivery.
 - Retry 3: 900 seconds (15 minutes)
 
 **After all retries are exhausted**, the message is marked as **failed** and held in the queue with its full message data intact. Failed messages are **never automatically discarded** — they remain in the system until an administrator takes action from the **Queue** page:
-- **Retry** — Requeue an individual failed message for another delivery attempt
-- **Retry All Failed** — Requeue all failed messages at once for redelivery
-- **Delete** — Permanently remove an individual failed message
-- **Delete All Failed** — Permanently remove all failed messages
+
+| Action | Scope | Description |
+|---|---|---|
+| **Retry** | Individual | Requeue a single failed message for another delivery attempt |
+| **Retry All Failed** | Bulk | Requeue all failed messages at once for redelivery |
+| **Delete** | Individual | Permanently remove a single failed message |
+| **Delete All Failed** | Bulk | Permanently remove all failed messages |
+
+All retry actions reset the retry counter to zero and schedule immediate redelivery.
 
 ---
 
@@ -197,7 +206,7 @@ These settings control where the relay forwards mail for final delivery.
 }
 ```
 
-> **Note:** The retention cleanup only automatically purges successfully **sent** queue entries. **Failed** queue entries are never automatically deleted — they are retained indefinitely until an administrator manually retries or deletes them from the Queue page. This ensures no undelivered email is ever silently discarded.
+> **Retention policy:** The automatic cleanup only purges successfully **sent** queue entries after `log_retention_days`. **Failed** queue entries are never automatically deleted — they are retained indefinitely until an administrator manually retries or deletes them from the Queue page. This ensures no undelivered email is ever silently discarded.
 
 ---
 
@@ -214,7 +223,7 @@ These settings control where the relay forwards mail for final delivery.
 }
 ```
 
-> **Note:** The directory will be created automatically if it doesn't exist. The database is created on first run with all required tables.
+> **Note:** The directory will be created automatically if it doesn't exist. The database is created on first run with all required tables. A 20-second busy timeout is configured on the database connection to prevent web requests from hanging if a brief write lock contention occurs.
 
 ---
 

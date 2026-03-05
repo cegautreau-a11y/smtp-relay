@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**SMTP Mail Relay v2.1.0**
+**SMTP Mail Relay v2.2.0**
 
 This document describes the system design, component interactions, and technical decisions behind the SMTP Mail Relay.
 
@@ -10,7 +10,7 @@ This document describes the system design, component interactions, and technical
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │            SMTP Mail Relay v2.1.0            │
+                    │            SMTP Mail Relay v2.2.0            │
                     │                                             │
   Applications      │  ┌──────────────┐    ┌──────────────────┐  │     Upstream
   & Devices         │  │  SMTP Server │    │  Queue Processor  │  │     SMTP Server
@@ -19,15 +19,15 @@ This document describes the system design, component interactions, and technical
        └───────────▶│  └──────────────┘    └──────────────────┘  │
                     │         │                     │             │
                     │         ▼                     ▼             │
-                    │  ┌─────────────────────────────────────────┐│
-                    │  │         SQLite Database                 ││
-                    │  │  ┌─────────┐ ┌──────┐ ┌──────────┐     ││
-                    │  │  │Email Log│ │Queue │ │Config    │     ││
-                    │  │  │+Headers │ │      │ │Users     │     ││
-                    │  │  │         │ │      │ │Domains   │     ││
-                    │  │  │         │ │      │ │Credentials│     ││
-                    │  │  └─────────┘ └──────┘ └──────────┘     ││
-                    │  └─────────────────────────────────────────┘│
+                    │  ┌─────────────────────────────────────┐   │
+                    │  │         SQLite Database              │   │
+                    │  │  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │
+                    │  │  │Email Log│ │Queue │ │Config    │  │   │
+                    │  │  │+Headers │ │      │ │Users     │  │   │
+                    │  │  │+Msg-ID  │ │      │ │Domains   │  │   │
+                    │  │  │         │ │      │ │Credentials│  │   │
+                    │  │  └─────────┘ └──────┘ └──────────┘  │   │
+                    │  └─────────────────────────────────────┘   │
                     │         ▲                                   │
                     │         │                                   │
                     │  ┌──────────────┐                           │
@@ -45,10 +45,11 @@ This document describes the system design, component interactions, and technical
 ### 1. Entry Point — `run.py`
 
 The application launcher handles:
-- **Auto-dependency installation** — Checks for required packages and runs `pip install` if any are missing
+- **Dependency management** — Runs `pip install --upgrade -r requirements.txt` on every startup to ensure all packages are at compatible versions. This is especially important for Python 3.14+ where older package builds may be incompatible with the new CPython ABI.
+- **Python version detection** — Prints a notice when Python 3.14+ is detected so the operator knows packages are being upgraded.
 - **Configuration loading** — Reads `config.json` and passes it to the Flask app factory
 - **Logging setup** — Configures Python logging based on config settings
-- **Component startup** — Creates and starts the SMTP server, queue processor, and Flask web server
+- **Component startup** — Creates and starts the SMTP server, queue processor, and Flask web server in the correct order
 - **Graceful shutdown** — Catches `Ctrl+C` and cleanly stops all components
 
 The launcher is designed for Windows: no Unix signals, no forking, no daemon mode. It runs as a foreground process (or via NSSM/Task Scheduler for service mode).
@@ -65,8 +66,9 @@ A Flask application created via the `create_app()` factory pattern. Key responsi
 - **SMTP server control** — Start, stop, restart the SMTP listener from the web UI
 - **API endpoints** — `/api/stats`, `/api/logs/recent`, and `/api/logs/<id>/detail` for AJAX updates and email detail retrieval
 - **Queue management** — Individual and bulk retry/delete operations for failed messages
-- **Database migration** — Automatic schema migration for role column and raw_headers column on startup
+- **Database migration** — Automatic schema migration on startup via `_migrate_schema()` and `_migrate_roles()`
 - **Context processor** — Injects `smtp_running` status and `Role` class into all templates
+- **SQLite busy timeout** — Configured with a 20-second connection timeout so web requests never hang indefinitely waiting for a database lock
 
 ### 3. SMTP Server — `smtp_server.py`
 
@@ -80,7 +82,7 @@ Processes the SMTP transaction lifecycle:
 - **EHLO** — Records client hostname
 - **MAIL FROM** — Enforces authentication, IP allowlist, domain allowlist, per-credential rate limits, and global rate limits
 - **RCPT TO** — Enforces maximum recipient count
-- **DATA** — Validates message size, extracts email headers, creates log and queue entries, spawns a delivery thread
+- **DATA** — Validates message size, extracts all email headers and Message-ID, creates log and queue entries, commits the DB session, then spawns a delivery thread
 
 #### `SmtpRelayServer`
 Wraps the aiosmtpd `Controller` with:
@@ -92,8 +94,18 @@ Wraps the aiosmtpd `Controller` with:
 #### `QueueProcessor`
 Background thread that runs every 30 seconds:
 - Finds queued messages where `next_retry_at` has passed
-- Attempts redelivery using `RelayHandler._deliver()`
+- Collects queue IDs, closes the DB session, then spawns a separate delivery thread per message
+- Does **not** call `_deliver()` synchronously — the DB session is always closed before any delivery thread starts, preventing the queue thread from blocking web requests
 - Handles log retention cleanup — only purges successfully sent queue entries; **failed entries are retained indefinitely** until an administrator manually retries or deletes them
+
+#### Delivery Thread Isolation (v2.2.0)
+Each `_deliver()` call runs in three distinct phases to prevent the database from being locked during network I/O:
+
+1. **Read phase** — Opens an app context, reads the queue entry and all relay config, marks status as `processing`, then closes the session. The DB connection is fully released before any network activity begins.
+2. **SMTP phase** — Performs the blocking network connection (connect, EHLO, STARTTLS, AUTH, SENDMAIL) with **no DB session held**. This phase can take up to 30 seconds if the upstream server is slow or unresponsive.
+3. **Write phase** — Opens a fresh app context to record the delivery result (sent or failed/retry). This is a short, fast write.
+
+This three-phase design ensures that a slow or unresponsive upstream SMTP server cannot block web page requests or cause the SQLite database to appear locked.
 
 ### 4. Database Models — `models.py`
 
@@ -109,7 +121,7 @@ SQLAlchemy models with SQLite backend:
 | `EmailQueue` | `email_queue` | Messages pending delivery or retry |
 | `RelayConfig` | `relay_config` | Runtime configuration key-value store |
 
-#### EmailLog Schema (v2.0)
+#### EmailLog Schema
 
 | Column | Type | Description |
 |---|---|---|
@@ -125,8 +137,8 @@ SQLAlchemy models with SQLite backend:
 | `source_ip` | String(45) | Connecting client IP address |
 | `relay_server` | String(255) | Upstream relay server hostname |
 | `retry_count` | Integer | Number of delivery attempts |
-| `message_id` | String(255) | Email Message-ID header value |
-| `raw_headers` | Text | Full raw email headers (v2.0) |
+| `message_id` | String(255) | Email Message-ID header value (added v2.2.0 migration) |
+| `raw_headers` | Text | Full raw email headers (added v2.0.0 migration) |
 
 ### 5. Templates — `templates/`
 
@@ -137,7 +149,7 @@ Jinja2 templates with a shared `base.html` layout:
 | `base.html` | Main layout: sidebar navigation, header with SMTP status, flash messages, auto-refresh JS |
 | `login.html` | Authentication page |
 | `dashboard.html` | Statistics grid, 7-day chart, recent emails table |
-| `logs.html` | Searchable email log with pagination and detail modal for viewing full email headers |
+| `logs.html` | Searchable email log with pagination and detail modal for viewing full email headers and Message-ID |
 | `queue.html` | Queued, processing, and failed message tables with individual and bulk retry/delete actions |
 | `domains.html` | Domain allowlist management |
 | `credentials.html` | SMTP credential management |
@@ -151,7 +163,7 @@ Jinja2 templates with a shared `base.html` layout:
 
 | File | Description |
 |---|---|
-| `css/style.css` | Complete responsive stylesheet with role badge styles, dark sidebar, card layouts, log detail modal styles |
+| `css/style.css` | Complete responsive stylesheet including role badge styles, dark sidebar, card layouts, log detail modal, scrollable headers block with styled scrollbar |
 
 External CDN resources:
 - **Font Awesome 6.5** — Icons
@@ -166,7 +178,7 @@ External CDN resources:
 |---|---|---|---|
 | `/api/stats` | GET | Required | Dashboard statistics (sent/failed today, queue count, SMTP status) |
 | `/api/logs/recent` | GET | Required | Last 20 email log entries as JSON |
-| `/api/logs/<id>/detail` | GET | Required | Full detail for a single email log entry including raw headers |
+| `/api/logs/<id>/detail` | GET | Required | Full detail for a single email log entry including raw headers and Message-ID |
 
 ---
 
@@ -188,9 +200,10 @@ External CDN resources:
    → Max recipients check
 6. DATA (message body)
    → Max message size check
-   → Email headers extracted and stored
+   → Email headers extracted and stored (including Message-ID)
    → EmailLog entry created (status: queued)
    → EmailQueue entry created
+   → DB session committed and closed
    → Delivery thread spawned
 7. 250 Message accepted for delivery
 ```
@@ -198,22 +211,29 @@ External CDN resources:
 ### Outbound (Relay → Upstream)
 
 ```
-1. Delivery thread connects to upstream SMTP server
-2. If use_tls: SMTP_SSL connection
-   If use_starttls: SMTP connection → STARTTLS upgrade
-3. EHLO with configured helo_hostname
-4. AUTH LOGIN (if relay auth credentials configured)
-5. SENDMAIL with original envelope
-6. On success:
-   → Queue entry status → sent
-   → Log entry status → sent
-7. On failure:
-   → Increment retry count
-   → If retries < max_retries: reschedule (status → queued)
-   → If retries >= max_retries: mark as failed (status → failed)
-   → Failed entries are retained in the queue with their raw message
-     data intact — they are never automatically discarded
-   → Administrators can manually retry or delete from the Queue page
+1. Delivery thread opens DB session
+   → Reads queue entry and relay config
+   → Marks status as 'processing'
+   → Closes DB session (no lock held during network I/O)
+
+2. Delivery thread connects to upstream SMTP server
+   → If use_tls: SMTP_SSL connection
+   → If use_starttls: SMTP connection → STARTTLS upgrade
+   → EHLO with configured helo_hostname
+   → AUTH LOGIN (if relay auth credentials configured)
+   → SENDMAIL with original envelope
+
+3. Delivery thread opens fresh DB session to write result
+   → On success:
+      Queue entry status → sent
+      Log entry status → sent
+   → On failure:
+      Increment retry count
+      If retries < max_retries: reschedule (status → queued)
+      If retries >= max_retries: mark as failed (status → failed)
+      Failed entries are retained in the queue with their raw message
+      data intact — they are never automatically discarded
+      Administrators can manually retry or delete from the Queue page
 ```
 
 ---
@@ -224,7 +244,7 @@ External CDN resources:
 - Web interface uses Flask-Login with bcrypt-hashed passwords
 - SMTP uses separate credentials (also bcrypt-hashed) from the `smtp_credentials` table
 - Sessions are non-permanent and expire on browser close
-- A random secret key is generated on each server restart, invalidating all existing sessions
+- All sessions are invalidated on server restart
 
 ### Authorization
 - Four-tier RBAC with privilege escalation prevention
@@ -242,18 +262,17 @@ External CDN resources:
 
 ## Database Migrations
 
-The application performs automatic schema migrations on startup to ensure compatibility with older databases:
+The application performs automatic schema migrations on startup to ensure compatibility with older databases. All migrations are idempotent — they check for column existence before attempting to add it, so they are safe to run on every startup.
 
-| Migration | Added In | Description |
-|---|---|---|
-| `_migrate_roles()` | v1.0.0 | Adds `role` column to `users` table, sets existing admins to `super_admin` |
-| `_migrate_raw_headers()` | v2.0.0 | Adds `raw_headers` column to `email_logs` table for storing email headers |
+| Function | Migration | Added In | Description |
+|---|---|---|---|
+| `_migrate_roles()` | `users.role` | v1.0.0 | Adds `role` column to `users` table; sets existing admins to `super_admin` |
+| `_migrate_schema()` | `email_logs.raw_headers` | v2.0.0 | Adds `raw_headers` TEXT column for storing full email headers |
+| `_migrate_schema()` | `email_logs.message_id` | v2.2.0 | Adds `message_id` VARCHAR(255) column; fixes Message-ID always showing blank on upgraded databases |
 
-### Queue Retention Policy (v2.0.1)
+### Queue Retention Policy
 
-The automatic cleanup process (`cleanup_old()`) only purges **successfully sent** queue entries after the configured `log_retention_days` period. Failed queue entries are **never automatically deleted** — they remain in the system with their full `raw_message` data until an administrator takes explicit action (retry or delete) via the Queue page in the web interface. This ensures no undelivered email is ever silently discarded.
-
-Migrations are idempotent — they check for the column's existence before attempting to add it, so they are safe to run on already-migrated databases.
+The automatic cleanup process (`cleanup_old()`) only purges **successfully sent** queue entries after the configured `log_retention_days` period. Failed queue entries are **never automatically deleted** — they remain in the system with their full `raw_message` data until an administrator takes explicit action (retry or delete) via the Queue page. This ensures no undelivered email is ever silently discarded.
 
 ---
 
@@ -261,10 +280,10 @@ Migrations are idempotent — they check for the column's existence before attem
 
 | Component | Technology | Version |
 |---|---|---|
-| Language | Python | 3.11 — 3.14 |
+| Language | Python | 3.9 — 3.14 |
 | Web Framework | Flask | 3.1.x |
 | SMTP Server | aiosmtpd | 1.4.x |
-| Database | SQLite via SQLAlchemy | 2.0.x |
+| Database | SQLite via SQLAlchemy | 2.0.37+ |
 | Authentication | Flask-Login + bcrypt | 0.6.x / 4.2.x |
 | Frontend | HTML5 + CSS3 + Vanilla JS | — |
 | Charts | Chart.js | 4.4.x |
@@ -276,7 +295,7 @@ Migrations are idempotent — they check for the column's existence before attem
 ## Design Decisions
 
 ### Why SQLite?
-SQLite requires zero configuration, no separate database server, and stores everything in a single file. For a mail relay handling up to a few thousand messages per hour, SQLite provides more than adequate performance. The database file can be easily backed up by copying a single file.
+SQLite requires zero configuration, no separate database server, and stores everything in a single file. For a mail relay handling up to a few thousand messages per hour, SQLite provides more than adequate performance. The database file can be easily backed up by copying a single file. A 20-second busy timeout is configured so that brief lock contention between the web server and delivery threads never causes indefinite hangs.
 
 ### Why aiosmtpd?
 aiosmtpd is the modern replacement for the deprecated `smtpd` module in Python's standard library. It provides an async SMTP server with built-in support for AUTH, TLS, and size limits. The `Controller` class runs the async event loop in a separate thread, making it compatible with Flask's synchronous model.
@@ -287,5 +306,8 @@ The relay uses threads instead of separate processes to keep deployment simple o
 ### Why Two-Layer Configuration?
 The config.json file provides a version-controllable, human-readable configuration baseline. The database layer allows runtime changes without restarting the application. This dual approach gives administrators flexibility while maintaining a clear configuration source of truth.
 
-### Why Store Raw Headers? (v2.0)
+### Why Store Raw Headers?
 Email headers contain critical diagnostic information — routing paths, authentication results, content types, mailer identification, and timestamps. Storing them at relay time provides a complete audit trail for troubleshooting delivery issues, verifying sender authenticity, and diagnosing formatting problems without needing access to the original sending application.
+
+### Why Three-Phase Delivery?
+The delivery thread previously held the SQLAlchemy session (and thus the SQLite write lock) open for the entire duration of the SMTP connection — up to 30 seconds. This caused web page requests to hang waiting for the lock. The three-phase approach (read → network → write) ensures the database is never locked during network I/O, keeping the web interface responsive regardless of upstream SMTP server performance.
