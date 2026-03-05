@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.2.0] — 2025-06-04
+
+### Fixed
+- **Page hang / browser spinner on refresh** — Resolved the root causes of the web interface hanging or spinning indefinitely when refreshing a page while background email delivery was in progress. Four separate issues were addressed together:
+
+  1. **SQLite WAL mode enabled** — SQLite now runs in Write-Ahead Logging (WAL) journal mode. WAL allows concurrent reads while a write is in progress, eliminating the database lock contention that caused web requests to block behind background delivery threads. A `busy_timeout` of 8 seconds and `synchronous=NORMAL` are also set on every connection.
+
+  2. **Queue processor decoupled from delivery** — The `QueueProcessor._tick()` method previously called `_deliver()` directly and synchronously, meaning a 30-second SMTP connect timeout would hold a SQLite connection open for the full duration and block the queue thread. Delivery is now always dispatched in a daemon thread, matching the behaviour of the immediate post-DATA delivery path. The DB connection is released as soon as the pending IDs are fetched.
+
+  3. **SQLAlchemy connection pool hardened** — Added `pool_timeout=10`, `pool_recycle=60`, and `pool_pre_ping=True` to the SQLAlchemy engine options. Web requests now fail fast with a 500 error rather than waiting indefinitely for a pool slot, and stale connections are recycled automatically.
+
+  4. **`/api/stats` made fault-tolerant** — The stats API endpoint (polled every 15 seconds by the base layout) is now wrapped in a try/except. If a DB query fails or times out it returns a graceful JSON response with `error: true` and zeroed counters rather than hanging or returning a 500, which previously caused the browser to queue up multiple stalled requests.
+
+### Changed
+- **Dashboard stat cards auto-refresh** — The incomplete `// Auto-refresh stats every 30 seconds` comment on the dashboard has been replaced with a working implementation. The four live stat cards (Sent Today, Failed Today, This Hour, Queued) now update every 30 seconds via the `/api/stats` endpoint without requiring a full page reload.
+- **Version bump** — All source files updated to v2.2.0.
+
+### Technical Details
+- `models.py` — Added `@event.listens_for(Engine, "connect")` listener that sets `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=8000`, and `PRAGMA synchronous=NORMAL` on every new SQLite connection.
+- `smtp_server.py` — `QueueProcessor._tick()` now collects pending queue IDs within a scoped `app_context`, closes the context, then spawns a `threading.Thread` per ID rather than calling `_deliver()` inline.
+- `app.py` — Added `SQLALCHEMY_ENGINE_OPTIONS` with `connect_args`, `pool_timeout`, `pool_recycle`, and `pool_pre_ping`. Wrapped `/api/stats` DB queries in try/except with a safe fallback response.
+- `templates/dashboard.html` — Added `id` attributes to the four live stat card `<div class="stat-value">` elements; implemented the 30-second `setInterval` fetch loop to update them.
+
+---
+
 ## [2.1.0] — 2025-06-03
 
 ### Added

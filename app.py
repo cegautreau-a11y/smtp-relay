@@ -1,6 +1,6 @@
 """
 Flask web application for SMTP Relay management.
-Version 2.1.0
+Version 2.2.0
 
 Designed and built by Christopher McGrath
 
@@ -9,7 +9,7 @@ User accounts are managed exclusively through the web UI.
 """
 
 # Author: Christopher McGrath
-# Version: 2.1.0
+# Version: 2.2.0
 
 import datetime
 import json
@@ -137,6 +137,17 @@ def create_app(config_json: dict | None = None):
     app.config['SECRET_KEY'] = cfg_key
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # SQLite engine options: short checkout timeout so web requests fail fast
+    # rather than hanging indefinitely waiting for a connection from the pool.
+    # connect_args timeout is handled by the WAL pragma in models.py; here we
+    # set pool_timeout so Flask-SQLAlchemy gives up after 10 s and returns a
+    # 500 rather than spinning forever.
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'connect_args': {'timeout': 10},
+        'pool_timeout': 10,
+        'pool_recycle': 60,
+        'pool_pre_ping': True,
+    }
     app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=8)
     app.config['SESSION_PERMANENT'] = False          # session cookie dies when browser closes
     app.config['REMEMBER_COOKIE_DURATION'] = datetime.timedelta(hours=0)  # disable "remember me"
@@ -737,13 +748,22 @@ def create_app(config_json: dict | None = None):
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         hour_ago = now - datetime.timedelta(hours=1)
         s = getattr(app, '_smtp_server', None)
-        return jsonify(
-            sent_today=EmailLog.query.filter(EmailLog.status == 'sent', EmailLog.timestamp >= today).count(),
-            failed_today=EmailLog.query.filter(EmailLog.status == 'failed', EmailLog.timestamp >= today).count(),
-            sent_this_hour=EmailLog.query.filter(EmailLog.status == 'sent', EmailLog.timestamp >= hour_ago).count(),
-            queued=EmailQueue.query.filter_by(status='queued').count(),
-            smtp_running=s.is_running if s else False,
-        )
+        try:
+            stats = dict(
+                sent_today=EmailLog.query.filter(EmailLog.status == 'sent', EmailLog.timestamp >= today).count(),
+                failed_today=EmailLog.query.filter(EmailLog.status == 'failed', EmailLog.timestamp >= today).count(),
+                sent_this_hour=EmailLog.query.filter(EmailLog.status == 'sent', EmailLog.timestamp >= hour_ago).count(),
+                queued=EmailQueue.query.filter_by(status='queued').count(),
+                smtp_running=s.is_running if s else False,
+            )
+            return jsonify(**stats)
+        except Exception as exc:
+            logger.warning('api/stats query failed: %s', exc)
+            return jsonify(
+                sent_today=0, failed_today=0, sent_this_hour=0,
+                queued=0, smtp_running=s.is_running if s else False,
+                error=True,
+            ), 200  # return 200 so the JS poller doesn't treat it as a hard failure
 
     @app.route('/api/logs/recent')
     @login_required

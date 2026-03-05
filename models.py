@@ -1,19 +1,40 @@
 """
 Database models for the SMTP Mail Relay.
-Version 2.1.0
+Version 2.2.0
 
 Designed and built by Christopher McGrath
 """
 
 # Author: Christopher McGrath
-# Version: 2.1.0
+# Version: 2.2.0
 
 import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 import bcrypt
+import sqlite3
 
 db = SQLAlchemy()
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    """Enable WAL journal mode and busy timeout on every new SQLite connection.
+
+    WAL (Write-Ahead Logging) allows concurrent readers while a write is in
+    progress, which eliminates the 'database is locked' hangs that cause the
+    web interface to spin when background delivery threads are active.
+    The busy_timeout tells SQLite to retry for up to 8 seconds before raising
+    an error, rather than failing immediately.
+    """
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=8000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 
 
 # ── Role constants ─────────────────────────────────────────────

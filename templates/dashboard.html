@@ -32,28 +32,28 @@
         <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
         <div class="stat-info">
             <h3>Sent Today</h3>
-            <div class="stat-value">{{ stats.sent_today }}</div>
+            <div class="stat-value" id="stat-sent-today">{{ stats.sent_today }}</div>
         </div>
     </div>
     <div class="stat-card">
         <div class="stat-icon red"><i class="fas fa-times-circle"></i></div>
         <div class="stat-info">
             <h3>Failed Today</h3>
-            <div class="stat-value">{{ stats.failed_today }}</div>
+            <div class="stat-value" id="stat-failed-today">{{ stats.failed_today }}</div>
         </div>
     </div>
     <div class="stat-card">
         <div class="stat-icon blue"><i class="fas fa-tachometer-alt"></i></div>
         <div class="stat-info">
             <h3>This Hour</h3>
-            <div class="stat-value">{{ stats.sent_this_hour }}</div>
+            <div class="stat-value" id="stat-this-hour">{{ stats.sent_this_hour }}</div>
         </div>
     </div>
     <div class="stat-card">
         <div class="stat-icon yellow"><i class="fas fa-hourglass-half"></i></div>
         <div class="stat-info">
             <h3>Queued</h3>
-            <div class="stat-value">{{ stats.total_queued }}</div>
+            <div class="stat-value" id="stat-queued">{{ stats.total_queued }}</div>
         </div>
     </div>
     <div class="stat-card">
@@ -206,7 +206,28 @@
         }
     });
 
-    // Auto-refresh stats every 30 seconds
+    // Auto-refresh dashboard stats every 30 seconds using the same
+    // /api/stats endpoint that the base layout uses for the SMTP status pill.
+    // This keeps the stat cards and recent-email count live without a full
+    // page reload, which avoids triggering the browser spinner on refresh.
+    setInterval(async () => {
+        try {
+            const resp = await fetch('/api/stats');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            // Update stat card values that come from the API
+            const map = {
+                'stat-sent-today':     data.sent_today,
+                'stat-failed-today':   data.failed_today,
+                'stat-this-hour':      data.sent_this_hour,
+                'stat-queued':         data.queued,
+            };
+            for (const [id, val] of Object.entries(map)) {
+                const el = document.getElementById(id);
+                if (el && val !== undefined) el.textContent = val;
+            }
+        } catch(e) {}
+    }, 30000);
     </script>
 {% endblock %}
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

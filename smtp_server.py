@@ -1,6 +1,6 @@
 """
 Async SMTP Relay Server – Windows-compatible.
-Version 2.1.0
+Version 2.2.0
 
 Designed and built by Christopher McGrath
 
@@ -8,7 +8,7 @@ No Unix signals, no fork.  Uses only threading + aiosmtpd.
 """
 
 # Author: Christopher McGrath
-# Version: 2.1.0
+# Version: 2.2.0
 
 import datetime
 import email
@@ -449,6 +449,14 @@ class QueueProcessor:
             time.sleep(30)
 
     def _tick(self):
+        """Pick up queued messages and dispatch each one in its own thread.
+
+        Previously _deliver() was called directly here, which meant a 30-second
+        SMTP connect timeout would block the queue thread and hold a SQLite
+        connection open for the entire duration.  Spawning a daemon thread per
+        message keeps the queue loop responsive and releases the DB connection
+        immediately after the IDs are fetched.
+        """
         with self.app.app_context():
             now = datetime.datetime.utcnow()
             pending = (
@@ -459,9 +467,13 @@ class QueueProcessor:
                 .limit(10)
                 .all()
             )
-            handler = RelayHandler(self.app)
-            for entry in pending:
-                handler._deliver(entry.id)
+            ids = [entry.id for entry in pending]
+
+        handler = RelayHandler(self.app)
+        for queue_id in ids:
+            threading.Thread(
+                target=handler._deliver, args=(queue_id,), daemon=True
+            ).start()
 
     def cleanup_old(self):
         with self.app.app_context():
