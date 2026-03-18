@@ -1,65 +1,49 @@
 {
-    "_comment": "SMTP Mail Relay — Configuration Template",
-    "_instructions": [
-        "1. Copy this file to config.json:  copy config.json.example config.json",
-        "2. Change secret_key to a long random string (required for security)",
-        "3. Set smtp_listener.host to your server's IP address or 0.0.0.0",
-        "4. Configure relay_destination with your upstream mail server details",
-        "5. Run:  python run.py"
-    ],
-
     "web": {
-        "_comment": "Web management interface settings",
         "host": "0.0.0.0",
         "port": 8025,
-        "secret_key": "CHANGE-ME-generate-a-random-string-at-least-32-chars"
+        "secret_key": "Change-Me"
     },
-
     "smtp_listener": {
-        "_comment": "Inbound SMTP server that receives mail from your applications",
-        "host": "0.0.0.0",
-        "port": 2525,
-        "banner_hostname": "relay.local",
-        "require_auth": true,
+        "host": "SERVERIP",
+        "port": 25,
+        "banner_hostname": "server",
+        "require_auth": false,
         "enable_tls": false,
         "tls_cert_path": "",
         "tls_key_path": ""
     },
-
     "relay_destination": {
-        "_comment": "Upstream SMTP server where mail is forwarded for final delivery",
-        "host": "smtp.example.com",
-        "port": 587,
+        "host": "RELAYSERVER",
+        "port": 25,
         "use_tls": false,
         "use_starttls": true,
         "auth_user": "",
         "auth_password": "",
-        "helo_hostname": "myserver.example.com"
+        "helo_hostname": "server"
     },
-
     "limits": {
-        "_comment": "Rate limiting and message size restrictions",
         "max_message_size_bytes": 26214400,
-        "max_recipients_per_message": 100,
-        "global_rate_limit_per_hour": 1000,
-        "allowed_source_ips": []
+        "max_recipients_per_message": 5,
+        "global_rate_limit_per_hour": 50,
+        "allowed_source_ips": [
+            "0.0.0.0/0"
+        ]
     },
-
     "queue": {
-        "_comment": "Retry behaviour for failed deliveries",
         "retry_interval_seconds": 300,
         "max_retries": 3
     },
-
     "logging": {
-        "_comment": "Application logging settings",
         "level": "INFO",
-        "log_file": "",
-        "log_retention_days": 30
+        "log_file": "c:\\temp\\smtp.log",
+        "log_retention_days": 5,
+        "debug_logging": true,
+        "debug_log_file": "c:\\temp\\smtp_debug.log",
+        "debug_log_max_size": 52428800,
+        "debug_log_backup_count": 5
     },
-
     "database": {
-        "_comment": "SQLite database path (relative to project directory)",
         "path": "smtp_relay.db"
     }
 }
