@@ -9,7 +9,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     {% block head %}{% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
 </head>
 <body>
     <div class="app-layout">
@@ -71,7 +70,7 @@
                     <div class="user-info">
                         <div class="user-name">{{ current_user.username }}</div>
                         <div class="user-role">
-                            <span class="role-badge {{ current_user.role_badge_class }}">{{ current_user.role_label }}</span>
+                            <span class="role-badge role-badge-{{ current_user.role }}">{{ current_user.role_label }}</span>
                         </div>
                     </div>
                     <a href="{{ url_for('profile') }}" title="Profile" style="color:var(--text-sidebar);margin-left:auto;">
@@ -85,10 +84,17 @@
                     </div>
                     {% endif %}
                 </div>
-                <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,.08);text-align:center;">
-                    <span style="font-size:0.65rem;color:rgba(148,163,184,.5);letter-spacing:0.02em;">
-                        Designed &amp; Built by Christopher McGrath
+                
+                <!-- Version Badge -->
+                <div class="sidebar-version">
+                    <span class="version-badge">
+                        <i class="fas fa-circle"></i>
+                        v3.0.1
                     </span>
+                </div>
+                
+                <div class="sidebar-credit">
+                    Designed & Built by Christopher McGrath
                 </div>
             </div>
         </aside>
@@ -96,7 +102,7 @@
         <!-- Main Content -->
         <main class="main-content">
             <header class="content-header">
-                <div class="d-flex align-center gap-1">
+                <div class="d-flex align-center">
                     <button class="mobile-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
                         <i class="fas fa-bars"></i>
                     </button>
@@ -108,6 +114,10 @@
                         <span class="status-dot {{ 'green' if smtp_running else 'red' }}"></span>
                         SMTP {{ 'Running' if smtp_running else 'Stopped' }}
                     </div>
+                    <!-- Dark Mode Toggle -->
+                    <button class="btn btn-outline btn-sm" onclick="toggleTheme()" title="Toggle dark/light mode" id="theme-toggle" style="padding: 0.4rem 0.6rem;">
+                        <i class="fas fa-moon" id="theme-icon"></i>
+                    </button>
                     {% endif %}
                     {% block header_actions %}{% endblock %}
                     {% if current_user.is_authenticated %}
@@ -134,6 +144,34 @@
             </div>
         </main>
     </div>
+
+    <!-- Theme Toggle Script -->
+    <script>
+    // Theme toggle functionality - defaults to light
+    function toggleTheme() {
+        const html = document.documentElement;
+        const icon = document.getElementById('theme-icon');
+        if (html.getAttribute('data-theme') === 'dark') {
+            html.setAttribute('data-theme', 'light');
+            icon.className = 'fas fa-moon';
+            localStorage.setItem('theme', 'light');
+        } else {
+            html.setAttribute('data-theme', 'dark');
+            icon.className = 'fas fa-sun';
+            localStorage.setItem('theme', 'dark');
+        }
+    }
+    
+    // Load saved theme preference - defaults to light mode
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        if (document.getElementById('theme-icon')) {
+            document.getElementById('theme-icon').className = 'fas fa-sun';
+        }
+    }
+    // Light theme is the default - no need to set anything
+    </script>
 
     {% if current_user.is_authenticated %}
     <script>

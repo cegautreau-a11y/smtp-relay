@@ -1,24 +1,26 @@
 """
 Async SMTP Relay Server – Windows-compatible.
-Version 2.2.0
+Version 3.0.1
 
 Designed and built by Christopher McGrath
 
 No Unix signals, no fork.  Uses only threading + aiosmtpd.
 """
 
-# Author: Christopher McGrath
-# Version: 2.2.0
-
 import datetime
 import email
+import ipaddress
 import json
 import logging
+import os
 import smtplib
 import ssl
+import sys
 import threading
 import time
 from email.utils import parseaddr
+from datetime import datetime as dt
+import datetime as dt_module
 
 from aiosmtpd.controller import Controller
 from aiosmtpd.smtp import AuthResult, LoginPassword
@@ -29,13 +31,142 @@ from models import (
 
 logger = logging.getLogger('smtp_relay')
 
+# Debug logging helper functions
+def debug_log(message):
+    """Log debug message if debug logging is enabled."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(message)
+
+def debug_log_connection(message, host, port):
+    """Log connection attempt with host and port."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(f"Connection attempt: {message} {host}:{port}")
+
+def debug_log_starttls(message):
+    """Log STARTTLS attempt."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(f"STARTTLS attempt: {message}")
+
+def debug_log_smtp_command(command):
+    """Log SMTP command."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(f"SMTP command: {command}")
+
+def debug_log_smtp_response(response):
+    """Log SMTP response."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(f"SMTP response: {response}")
+
+def debug_log_message_details(message_id, subject, sender, recipients, queue_id=None):
+    """Log message details for tracking."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        msg = (f"Message details - ID: {message_id}, Subject: {subject}, "
+               f"Sender: {sender}, Recipients: {recipients}")
+        if queue_id is not None:
+            msg += f" (queue_id={queue_id})"
+        logger.debug(msg)
+
+def debug_log_exception(exc, context):
+    """Log exception with context."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        logger.debug(f"Exception in {context}: {exc}", exc_info=True)
+
+def debug_log_timing(start_time, context):
+    """Log timing information."""
+    if getattr(logger, 'isEnabledFor', lambda level: False)(logging.DEBUG):
+        elapsed = time.time() - start_time
+        logger.debug(f"{context} took {elapsed:.3f} seconds")
+
+
+# ── IP Allowlist Helper Functions ────────────────────────────────
+def _parse_allowed_networks(allowed_csv: str) -> list:
+    """Parse comma-separated list of IPs/CIDR networks.
+    
+    Supports:
+    - Single IPs: 10.55.61.5
+    - CIDR notation: 10.55.61.0/24
+    
+    Returns list of ipaddress.IPv4Network objects.
+    """
+    if not allowed_csv:
+        return []
+    
+    networks = []
+    for item in allowed_csv.split(','):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            # Try as CIDR first
+            if '/' in item:
+                networks.append(ipaddress.IPv4Network(item, strict=False))
+            else:
+                # Single IP - convert to /32 network
+                networks.append(ipaddress.IPv4Network(f"{item}/32", strict=False))
+        except (ipaddress.AddressValueError, ipaddress.NetmaskValueError) as e:
+            logger.warning("Invalid IP/CIDR in allowlist: %s - %s", item, e)
+    return networks
+
+
+def _is_ip_allowed(peer_ip: str, allowed_csv: str) -> bool:
+    """Check if peer IP is in any of the allowed networks.
+    
+    Args:
+        peer_ip: The IP address of the connecting client.
+        allowed_csv: Comma-separated list of IPs or CIDR networks.
+        
+    Returns:
+        True if the IP is allowed, False otherwise.
+    """
+    networks = _parse_allowed_networks(allowed_csv)
+    if not networks:
+        return True  # No restrictions
+    
+    try:
+        ip = ipaddress.IPv4Address(peer_ip)
+        return any(ip in network for network in networks)
+    except ipaddress.AddressValueError:
+        logger.warning("Invalid peer IP: %s", peer_ip)
+        return False
+
 
 # ── Authenticator ──────────────────────────────────────────────
 class RelayAuthenticator:
+    """SMTP authentication handler for validating client credentials.
+    
+    This class is called by aiosmtpd when a client attempts to authenticate
+    using SMTP AUTH. It validates the username and password against the
+    SmtpCredential database records.
+    
+    Attributes:
+        app: The Flask application instance for database access.
+    """
+    
     def __init__(self, app):
+        """Initialize the authenticator with the Flask app.
+        
+        Args:
+            app: The Flask application instance.
+        """
         self.app = app
 
     def __call__(self, server, session, envelope, mechanism, auth_data):
+        """Handle SMTP AUTH login attempt.
+        
+        Called by aiosmtpd when a client authenticates. Extracts credentials
+        from the auth_data, validates them against the database, and returns
+        an AuthResult indicating success or failure.
+        
+        Args:
+            server: The SMTP server instance.
+            session: The SMTP session object.
+            envelope: The SMTP envelope.
+            mechanism: The authentication mechanism (e.g., 'LOGIN', 'PLAIN').
+            auth_data: The authentication credentials (LoginPassword instance).
+            
+        Returns:
+            AuthResult: Success or failure with optional message.
+        """
         with self.app.app_context():
             try:
                 if isinstance(auth_data, LoginPassword):
@@ -70,26 +201,77 @@ class RelayAuthenticator:
 
 # ── Handler ────────────────────────────────────────────────────
 class RelayHandler:
+    """SMTP message handler for processing incoming emails.
+    
+    This handler implements the aiosmtpd protocol handlers to process
+    incoming SMTP connections, validate senders/recipients, enforce
+    rate limits, and queue messages for delivery.
+    
+    Attributes:
+        app: The Flask application instance for database access.
+    """
+    
     def __init__(self, app):
+        """Initialize the handler with the Flask app.
+        
+        Args:
+            app: The Flask application instance.
+        """
         self.app = app
 
     async def handle_EHLO(self, server, session, envelope, hostname, responses):
+        """Handle the EHLO SMTP command.
+        
+        Args:
+            server: The SMTP server instance.
+            session: The SMTP session object.
+            envelope: The SMTP envelope.
+            hostname: The hostname provided by the client.
+            responses: List of EHLO response values.
+            
+        Returns:
+            The modified responses list.
+        """
         session.host_name = hostname
         return responses
 
     async def handle_MAIL(self, server, session, envelope, address, mail_options):
+        """Handle the MAIL FROM SMTP command.
+        
+        Validates the sender address and enforces:
+        - Authentication requirements
+        - IP allowlist restrictions
+        - Domain allowlist restrictions
+        - Per-credential rate limits
+        - Global rate limits
+        
+        Args:
+            server: The SMTP server instance.
+            session: The SMTP session object.
+            envelope: The SMTP envelope.
+            address: The sender email address.
+            mail_options: Additional MAIL command options.
+            
+        Returns:
+            SMTP response code and message.
+        """
         with self.app.app_context():
-            # Auth check
-            if RelayConfig.get_bool('require_auth', True):
-                if not getattr(session, 'auth_data', None):
-                    return '530 5.7.0 Authentication required'
+            # Auth check - allow unauthenticated relay if no credentials exist
+            require_auth = RelayConfig.get_bool('require_auth', True)
+            if require_auth:
+                # Check if any active credentials exist
+                has_credentials = SmtpCredential.query.filter_by(is_active=True).count() > 0
+                if has_credentials:
+                    # Credentials exist, require authentication
+                    if not getattr(session, 'auth_data', None):
+                        return '530 5.7.0 Authentication required'
+                # If no credentials exist, allow unauthenticated relay (open relay)
 
-            # IP allowlist
+            # IP allowlist (supports CIDR notation)
             allowed_csv = RelayConfig.get('allowed_source_ips', '')
             if allowed_csv:
-                allowed = [ip.strip() for ip in allowed_csv.split(',') if ip.strip()]
                 peer_ip = session.peer[0] if session.peer else None
-                if allowed and peer_ip not in allowed:
+                if peer_ip and not _is_ip_allowed(peer_ip, allowed_csv):
                     logger.warning("Rejected IP: %s", peer_ip)
                     return '550 5.7.1 Connection from your IP is not allowed'
 
@@ -113,7 +295,7 @@ class RelayHandler:
 
             # Global rate limit
             limit = RelayConfig.get_int('global_rate_limit', 1000)
-            since = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+            since = dt_module.datetime.utcnow() - dt_module.timedelta(hours=1)
             recent = EmailLog.query.filter(
                 EmailLog.timestamp >= since,
                 EmailLog.status.in_(['sent', 'queued']),
@@ -126,6 +308,20 @@ class RelayHandler:
             return '250 OK'
 
     async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
+        """Handle the RCPT TO SMTP command.
+        
+        Validates recipient count doesn't exceed configured limit.
+        
+        Args:
+            server: The SMTP server instance.
+            session: The SMTP session object.
+            envelope: The SMTP envelope.
+            address: The recipient email address.
+            rcpt_options: Additional RCPT command options.
+            
+        Returns:
+            SMTP response code and message.
+        """
         with self.app.app_context():
             cap = RelayConfig.get_int('max_recipients', 100)
             if len(envelope.rcpt_tos) >= cap:
@@ -134,6 +330,19 @@ class RelayHandler:
             return '250 OK'
 
     async def handle_DATA(self, server, session, envelope):
+        """Handle the DATA SMTP command.
+        
+        Receives the email content, validates size limits, logs the message,
+        and queues it for delivery to the relay destination.
+        
+        Args:
+            server: The SMTP server instance.
+            session: The SMTP session object.
+            envelope: The SMTP envelope containing message content.
+            
+        Returns:
+            SMTP response code and message.
+        """
         with self.app.app_context():
             try:
                 max_sz = RelayConfig.get_int('max_message_size', 26214400)
@@ -207,6 +416,15 @@ class RelayHandler:
 
     # ── delivery worker (runs in a thread) ─────────────────────
     def _deliver(self, queue_id):
+        """Deliver a queued email to the relay destination.
+
+        This method runs in a separate thread. It connects to the configured
+        relay server and delivers the queued email. Handles retries on failure
+        and updates the queue/log status accordingly.
+
+        Args:
+            queue_id: The ID of the EmailQueue entry to deliver.
+        """
         with self.app.app_context():
             try:
                 q = EmailQueue.query.get(queue_id)
@@ -225,6 +443,15 @@ class RelayHandler:
 
                 recipients = json.loads(q.recipients)
 
+                # Log message details for tracking
+                log_entry = EmailLog.query.get(q.log_id) if q.log_id else None
+                message_id = log_entry.message_id if log_entry else None
+                subject = log_entry.subject if log_entry else '(unknown)'
+                debug_log_message_details(
+                    message_id, subject, q.sender, recipients,
+                    queue_id=queue_id
+                )
+
                 logger.info(
                     "Delivering queue #%s: %s -> %s via %s:%s "
                     "(tls=%s starttls=%s auth_user=%s helo=%s)",
@@ -235,16 +462,23 @@ class RelayHandler:
 
                 # Build the connection and deliver.
                 conn = None
+                start_time = time.time()
                 try:
                     if use_tls:
                         ctx = ssl.create_default_context()
-                        logger.debug("Connecting (SMTP_SSL) to %s:%s …", host, port)
+                        debug_log_connection(
+                            "Connecting via SMTP_SSL",
+                            host, port
+                        )
                         conn = smtplib.SMTP_SSL(
                             host, port,
                             local_hostname=helo_name, context=ctx, timeout=30
                         )
                     else:
-                        logger.debug("Connecting (SMTP) to %s:%s …", host, port)
+                        debug_log_connection(
+                            "Connecting via SMTP",
+                            host, port
+                        )
                         conn = smtplib.SMTP(
                             host, port,
                             local_hostname=helo_name, timeout=30
@@ -256,39 +490,54 @@ class RelayHandler:
                         conn._host = host
 
                     conn.ehlo(helo_name)
+                    debug_log_smtp_command(f"EHLO {helo_name} [queue_id={queue_id}]")
 
                     # Optionally upgrade to STARTTLS
                     if use_starttls and not use_tls:
                         try:
                             ctx = ssl.create_default_context()
+                            debug_log_starttls(f"Upgrading to STARTTLS [queue_id={queue_id}]")
                             conn.starttls(context=ctx)
                             conn.ehlo(helo_name)
+                            debug_log_smtp_command(f"EHLO after STARTTLS [queue_id={queue_id}]")
                         except smtplib.SMTPNotSupportedError:
                             logger.warning("STARTTLS not supported by %s", host)
+                            debug_log(f"STARTTLS not supported by server [queue_id={queue_id}]")
 
                     # Optionally authenticate (skip if credentials are empty)
                     if auth_user and auth_pass:
-                        conn.login(auth_user, auth_pass)
+                        try:
+                            conn.login(auth_user, auth_pass)
+                            debug_log_smtp_command(f"AUTH LOGIN {auth_user} [queue_id={queue_id}]")
+                        except smtplib.SMTPException as auth_exc:
+                            logger.warning("Authentication failed: %s", auth_exc)
+                            debug_log_exception(auth_exc, f"SMTP authentication [queue_id={queue_id}]")
+                            raise
 
+                    # Send the email
                     conn.sendmail(q.sender, recipients, q.raw_message)
+                    debug_log_smtp_command(f"SENDMAIL to {len(recipients)} recipients [queue_id={queue_id}]")
 
                     q.status = 'sent'
-                    log = EmailLog.query.get(q.log_id) if q.log_id else None
-                    if log:
-                        log.status = 'sent'
-                        log.status_message = f'Delivered via {host}:{port}'
+                    if log_entry:
+                        log_entry.status = 'sent'
+                        log_entry.status_message = f'Delivered via {host}:{port}'
+                        log_entry.retry_count = q.retry_count
                     db.session.commit()
                     logger.info("Delivered queue #%s via %s:%s", queue_id, host, port)
+                    debug_log_timing(start_time, f"Delivery completed [host={host} port={port}]")
                 finally:
                     if conn is not None:
                         try:
                             conn.quit()
+                            debug_log_smtp_command(f"QUIT [queue_id={queue_id}]")
                         except Exception:
                             pass
 
             except Exception as exc:
                 logger.error("Delivery failed #%s: %s", queue_id, exc,
                              exc_info=True)
+                debug_log_exception(exc, f"Delivery failed [queue_id={queue_id}]")
                 try:
                     q = EmailQueue.query.get(queue_id)
                     if q:
@@ -298,32 +547,55 @@ class RelayHandler:
                         q.last_error = str(exc)
                         if q.retry_count >= max_r:
                             q.status = 'failed'
-                            log = EmailLog.query.get(q.log_id) if q.log_id else None
-                            if log:
-                                log.status = 'failed'
-                                log.status_message = (
+                            if log_entry:
+                                log_entry.status = 'failed'
+                                log_entry.status_message = (
                                     f'Failed after {max_r} attempts: {exc}')
-                                log.retry_count = q.retry_count
+                                log_entry.retry_count = q.retry_count
                         else:
                             q.status = 'queued'
                             q.next_retry_at = (
-                                datetime.datetime.utcnow()
-                                + datetime.timedelta(seconds=interval * q.retry_count)
+                                dt_module.datetime.utcnow()
+                                + dt_module.timedelta(seconds=interval * q.retry_count)
                             )
                         db.session.commit()
                 except Exception as inner:
                     logger.error("Queue status update error: %s", inner)
+                    debug_log_exception(inner, f"Queue status update [queue_id={queue_id}]")
                     db.session.rollback()
 
 
 # ── Server wrapper ─────────────────────────────────────────────
 class SmtpRelayServer:
+    """SMTP relay server manager.
+    
+    This class wraps the aiosmtpd Controller to provide a simpler interface
+    for starting, stopping, and checking the status of the SMTP server.
+    It handles configuration loading and Windows-specific fallback behavior.
+    
+    Attributes:
+        app: The Flask application instance.
+        controller: The aiosmtpd Controller instance.
+        _running: Flag indicating if the server is currently running.
+    """
+    
     def __init__(self, app):
+        """Initialize the SMTP server with the Flask app.
+        
+        Args:
+            app: The Flask application instance.
+        """
         self.app = app
         self.controller = None
         self._running = False
 
     def start(self):
+        """Start the SMTP relay server.
+        
+        Loads configuration from the database, sets up TLS if enabled,
+        and starts listening for incoming SMTP connections.
+        On Windows, if binding to 0.0.0.0 fails, falls back to 127.0.0.1.
+        """
         if self._running:
             logger.warning("SMTP server already running")
             return
@@ -386,6 +658,10 @@ class SmtpRelayServer:
                 raise
 
     def stop(self):
+        """Stop the SMTP relay server.
+        
+        Stops the aiosmtpd controller and updates the running flag.
+        """
         if self.controller and self._running:
             try:
                 self.controller.stop()
@@ -396,7 +672,11 @@ class SmtpRelayServer:
 
     @property
     def is_running(self):
-        """Check if the SMTP server is actually running."""
+        """Check if the SMTP server is actually running.
+        
+        Returns:
+            True if the server is running, False otherwise.
+        """
         if not self._running or self.controller is None:
             return False
         # Try to verify the controller thread is still alive.
@@ -413,6 +693,10 @@ class SmtpRelayServer:
         return self._running
 
     def restart(self):
+        """Restart the SMTP relay server.
+        
+        Stops the server, waits 1 second, then starts it again.
+        """
         logger.info("Restarting SMTP server …")
         self.stop()
         time.sleep(1)
@@ -421,12 +705,30 @@ class SmtpRelayServer:
 
 # ── Queue processor (background thread) ───────────────────────
 class QueueProcessor:
+    """Background processor for retrying failed email deliveries.
+    
+    This class runs a background thread that periodically checks for
+    queued emails that need to be retried and dispatches delivery
+    workers for each.
+    
+    Attributes:
+        app: The Flask application instance.
+        _running: Flag indicating if the processor is active.
+        _thread: The background thread instance.
+    """
+    
     def __init__(self, app):
+        """Initialize the queue processor with the Flask app.
+        
+        Args:
+            app: The Flask application instance.
+        """
         self.app = app
         self._running = False
         self._thread = None
 
     def start(self):
+        """Start the queue processor background thread."""
         if self._running:
             return
         self._running = True
@@ -435,12 +737,18 @@ class QueueProcessor:
         logger.info("Queue processor started")
 
     def stop(self):
+        """Stop the queue processor background thread."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=10)
         logger.info("Queue processor stopped")
 
     def _loop(self):
+        """Main loop that periodically checks for pending queue entries.
+        
+        Runs every 30 seconds, looking for queued messages that are
+        due for retry.
+        """
         while self._running:
             try:
                 self._tick()
@@ -458,7 +766,7 @@ class QueueProcessor:
         immediately after the IDs are fetched.
         """
         with self.app.app_context():
-            now = datetime.datetime.utcnow()
+            now = dt_module.datetime.utcnow()
             pending = (
                 EmailQueue.query
                 .filter(EmailQueue.status == 'queued',
@@ -476,9 +784,15 @@ class QueueProcessor:
             ).start()
 
     def cleanup_old(self):
+        """Remove old log and queue entries based on retention settings.
+        
+        Deletes sent queue entries and email logs older than the configured
+        retention period. Failed queue entries are retained until manually
+        handled by an administrator.
+        """
         with self.app.app_context():
             days = RelayConfig.get_int('log_retention_days', 30)
-            cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+            cutoff = dt_module.datetime.utcnow() - dt_module.timedelta(days=days)
             # Only purge 'sent' queue entries — failed entries are retained
             # until an administrator manually retries or deletes them.
             dq = EmailQueue.query.filter(

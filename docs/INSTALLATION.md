@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks you through installing and running the SMTP Mail Relay v2.2.0 on a Windows Server.
+This guide walks you through installing and running the SMTP Mail Relay v3.0.1 on a Windows Server.
 
 ---
 
@@ -150,7 +150,7 @@ On first run, the application will:
 You will see a startup banner:
 ```
 ============================================================
-  SMTP Mail Relay  v2.2.0
+  SMTP Mail Relay  v3.0.1
   Designed and built by Christopher McGrath
 ============================================================
   Web Interface : http://0.0.0.0:8025
@@ -253,6 +253,7 @@ Open the web interface and verify:
 - SMTP status shows **Running** (green indicator in the header)
 - The test email appears in **Email Logs**
 - Statistics update on the **Dashboard**
+- Version badge in the sidebar footer shows **v3.0.1**
 
 ---
 
@@ -267,13 +268,31 @@ Open the web interface and verify:
 | STARTTLS errors | Ensure `relay_destination.helo_hostname` is set to a valid FQDN |
 | "Authentication required" | Create SMTP credentials in the web interface under **SMTP Credentials** |
 | Emails stuck in queue | Check **relay_destination** settings. View error details in the **Queue** page |
-| Page hangs / server not responding | Fixed in v2.2.0. Ensure you are running the latest version |
+| Page hangs / server not responding | Fixed in v2.2.0. Ensure you are running v2.2.0 or later |
 | `ImportError` or crash on startup | Run `pip install --upgrade -r requirements.txt` manually. Python 3.14 requires SQLAlchemy 2.0.37+ |
 | Message-ID always blank in logs | Fixed in v2.2.0. The `message_id` column is added automatically on startup |
 
 ---
 
-## Upgrading from v1.0 to v2.2.0
+## Upgrading
+
+### From v2.2.0 or later to v3.0.1
+
+1. Stop the running application (`Ctrl+C` or stop the Windows service)
+2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`, `requirements.txt`) with the v3.0.1 versions
+3. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
+4. Start the application with `python run.py`
+5. The database is automatically migrated if needed — no manual changes required
+
+**What's new in v3.0.x:**
+- Complete web interface redesign (v3.0.0) with modern UI
+- Version badge displayed in sidebar footer
+- Enhanced color palette and improved dark mode
+- Better stat cards, tables, and animations
+- Queue delete confirmations (v3.0.1) to prevent accidental deletions
+- Processing section notice (v3.0.1) explaining why active messages cannot be cancelled
+
+### From any version to v2.2.0
 
 1. Stop the running application (`Ctrl+C` or stop the Windows service)
 2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`, `requirements.txt`) with the v2.2.0 versions
@@ -284,32 +303,6 @@ Open the web interface and verify:
 7. Failed queue entries are now retained until manually retried or deleted — they are no longer auto-purged
 
 No manual database changes are required. The migration is safe and idempotent.
-
-## Upgrading from v2.0.0 to v2.2.0
-
-1. Stop the running application
-2. Replace all source files with the v2.2.0 versions
-3. No config changes required
-4. Start the application — `message_id` column is added automatically; Message-ID will now populate correctly
-5. Page hanging issues are resolved
-6. "Retry All Failed" and "Delete All Failed" bulk-action buttons are now available on the Queue page
-
-## Upgrading from v2.0.1 to v2.2.0
-
-1. Stop the running application
-2. Replace all source files with the v2.2.0 versions
-3. No config changes required
-4. Start the application — `message_id` column is added automatically
-5. Page hanging issues are resolved
-
-## Upgrading from v2.1.0 to v2.2.0
-
-1. Stop the running application
-2. Replace all source files with the v2.2.0 versions
-3. No config or database changes required
-4. Start the application — `message_id` column is added automatically if missing
-5. Delivery threads no longer hold the database lock during SMTP connections — page hanging issues are resolved
-6. Python 3.14 startup crash is fixed — packages are now auto-upgraded on every run
 
 ---
 

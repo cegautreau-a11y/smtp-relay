@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.1] — 2026-03-18
+
+### Added
+- **Queue cancellation confirmations** — Delete buttons for queued messages now prompt for confirmation to prevent accidental deletions
+- **Processing section notice** — Added informational alert explaining why actively processing messages cannot be cancelled
+
+### Changed
+- **Version bump** — All source files updated to v3.0.1
+
+---
+
+## [3.0.0] — 2026-03-18
+
+### Added
+- **Version badge in web interface** — Version number now displayed in the sidebar footer of all pages
+- **Complete web interface redesign** — Modern, cleaner UI with improved visual hierarchy
+
+### Changed
+- **Version bump** — All source files updated to v3.0.0
+- **Enhanced color palette** — More refined indigo/blue primary colors with better contrast
+- **Improved sidebar** — Smoother hover states and active indicator bar
+- **Better stat cards** — Larger values with gradient icon backgrounds
+- **Refined dark mode** — Improved contrast and color balance for dark theme
+- **Enhanced animations** — Smoother page transitions and hover effects
+- **Improved tables** — Better zebra striping and hover states
+- **Button refinements** — Better hover states and visual feedback
+
+---
+
 ## [2.2.0] — 2025-06-03
 
 ### Fixed

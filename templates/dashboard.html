@@ -6,17 +6,20 @@
 {% if current_user.has_role('admin') %}
 {% if smtp_running %}
 <form method="POST" action="{{ url_for('restart_server') }}" style="display:inline;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Restart SMTP server?')">
         <i class="fas fa-sync-alt"></i> Restart
     </button>
 </form>
 <form method="POST" action="{{ url_for('stop_server') }}" style="display:inline;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Stop SMTP server?')">
         <i class="fas fa-stop"></i> Stop
     </button>
 </form>
 {% else %}
 <form method="POST" action="{{ url_for('start_server') }}" style="display:inline;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-success btn-sm">
         <i class="fas fa-play"></i> Start
     </button>
@@ -230,4 +233,3 @@
     }, 30000);
     </script>
 {% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

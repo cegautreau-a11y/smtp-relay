@@ -15,6 +15,7 @@
                 <input type="text" class="form-control" value="{{ current_user.username }}" disabled>
             </div>
             <form method="POST" action="{{ url_for('profile') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="update_email">
                 <div class="form-group">
                     <label for="email">Email</label>
@@ -35,6 +36,7 @@
         </div>
         <div class="card-body">
             <form method="POST" action="{{ url_for('profile') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="change_password">
                 <div class="form-group">
                     <label for="current_password">Current Password</label>
@@ -97,4 +99,3 @@
     </div>
 </div>
 {% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

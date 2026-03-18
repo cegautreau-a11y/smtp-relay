@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SMTP Mail Relay – Windows Launcher
-Version 2.2.0
+Version 3.0.1
 ===================================
 Designed and built by Christopher McGrath
 
@@ -11,9 +11,6 @@ On first run it will install the required pip packages automatically.
 All settings are read from config.json in the same directory.
 User accounts are managed through the web interface only.
 """
-
-# Author: Christopher McGrath
-# Version: 2.2.0
 
 import json
 import logging
@@ -58,6 +55,7 @@ def load_config() -> dict:
     """Load config.json, creating a default one if it doesn't exist."""
     if not os.path.exists(CONFIG_FILE):
         default = {
+            "version": "3.0.0",
             "web": {
                 "host": "0.0.0.0",
                 "port": 8025,
@@ -117,6 +115,33 @@ def setup_logging(cfg: dict):
     if log_file:
         os.makedirs(os.path.dirname(log_file) or '.', exist_ok=True)
         handlers.append(logging.FileHandler(log_file))
+
+    # Setup debug logging if enabled
+    debug_cfg = cfg.get('logging', {})
+    if debug_cfg.get('debug_logging', False):
+        level = logging.DEBUG
+        try:
+            from logging.handlers import RotatingFileHandler
+            debug_log_file = debug_cfg.get('debug_log_file', 'smtp_debug.log')
+            debug_log_max_size = debug_cfg.get('debug_log_max_size', 52428800)
+            debug_log_backup_count = debug_cfg.get('debug_log_backup_count', 5)
+
+            os.makedirs(os.path.dirname(debug_log_file) or '.', exist_ok=True)
+            debug_handler = RotatingFileHandler(
+                debug_log_file,
+                maxBytes=debug_log_max_size,
+                backupCount=debug_log_backup_count
+            )
+            debug_handler.setLevel(logging.DEBUG)
+            debug_formatter = logging.Formatter(
+                '%(asctime)s [%(levelname)s] %(name)s: %(message)s [DEBUG]'
+            )
+            debug_handler.setFormatter(debug_formatter)
+            handlers.append(debug_handler)
+            print(f'Debug logging enabled: {debug_log_file}')
+        except Exception as exc:
+            print(f'Debug logging setup failed: {exc}')
+
     logging.basicConfig(level=level, format=fmt, datefmt='%Y-%m-%d %H:%M:%S',
                         handlers=handlers)
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
@@ -160,7 +185,7 @@ def main():
 
     print()
     print('=' * 60)
-    print('  SMTP Mail Relay  v2.2.0')
+    print('  SMTP Mail Relay  v3.0.1')
     print('  Designed and built by Christopher McGrath')
     print('=' * 60)
     print(f'  Web Interface : http://{web_host}:{web_port}')

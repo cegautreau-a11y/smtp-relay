@@ -7,12 +7,14 @@
 <div class="d-flex gap-1">
     <form method="POST" action="{{ url_for('retry_all_failed') }}" style="display:inline;"
           onsubmit="return confirm('Retry sending all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-primary btn-sm">
             <i class="fas fa-redo"></i> Retry All Failed
         </button>
     </form>
     <form method="POST" action="{{ url_for('flush_queue') }}" style="display:inline;"
           onsubmit="return confirm('Permanently delete all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}? This cannot be undone.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-danger btn-sm">
             <i class="fas fa-trash"></i> Delete All Failed
         </button>
@@ -65,7 +67,9 @@
                         {% if current_user.has_role('operator') %}
                         <td>
                             <div class="d-flex gap-1">
-                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}">
+                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
+                                      onsubmit="return confirm('Permanently delete this queued message? This cannot be undone.')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-xs">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -96,6 +100,9 @@
         <span class="badge badge-processing">{{ processing|length }}</span>
     </div>
     <div class="card-body" style="padding:0;">
+        <div class="alert alert-info" style="margin:0; border-radius:0; border-top:0; border-left:0; border-right:0;">
+            <i class="fas fa-info-circle"></i>&nbsp; These messages are actively being delivered. They cannot be cancelled.
+        </div>
         <div class="table-wrapper">
             <table>
                 <thead>
@@ -166,12 +173,14 @@
                         <td>
                             <div class="d-flex gap-1">
                                 <form method="POST" action="{{ url_for('retry_queue', qid=entry.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline btn-xs" title="Retry this message">
                                         <i class="fas fa-redo"></i> Retry
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
                                       onsubmit="return confirm('Permanently delete this message?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-xs" title="Delete permanently">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -194,4 +203,3 @@
     </div>
 </div>
 {% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

@@ -57,6 +57,7 @@
                                 {% if current_user.can_manage_user(user) %}
                                 {# Enable / Disable #}
                                 <form method="POST" action="{{ url_for('toggle_user', uid=user.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline btn-xs">
                                         {{ 'Disable' if user.is_active else 'Enable' }}
                                     </button>
@@ -64,6 +65,7 @@
                                 {# Change Role dropdown #}
                                 <div class="inline-role-change">
                                     <form method="POST" action="{{ url_for('change_user_role', uid=user.id) }}" class="d-flex gap-1">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <select name="role" class="form-control form-control-xs">
                                             {% for r in Role.assignable_roles(current_user.role) %}
                                             <option value="{{ r }}" {% if r == user.role %}selected{% endif %}>{{ Role.label(r) }}</option>
@@ -86,6 +88,7 @@
                                 {% if current_user.can_manage_user(user) %}
                                 <form method="POST" action="{{ url_for('delete_user', uid=user.id) }}"
                                       onsubmit="return confirm('Delete user {{ user.username }}? This cannot be undone.')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-xs">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -109,6 +112,7 @@
             <button class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">&times;</button>
         </div>
         <form method="POST" action="{{ url_for('add_user') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-body">
                 <div class="form-group">
                     <label for="new_username">Username</label>
@@ -156,6 +160,7 @@
             <button class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">&times;</button>
         </div>
         <form method="POST" id="userResetPwForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-body">
                 <div class="form-group">
                     <label for="user_new_pw">New Password</label>
@@ -179,4 +184,3 @@ function openUserResetPw(userId, username) {
 }
 </script>
 {% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>

@@ -1,12 +1,9 @@
 """
 Database models for the SMTP Mail Relay.
-Version 2.2.0
+Version 3.0.1
 
 Designed and built by Christopher McGrath
 """
-
-# Author: Christopher McGrath
-# Version: 2.2.0
 
 import datetime
 from flask_sqlalchemy import SQLAlchemy
@@ -269,6 +266,7 @@ class RelayConfig(db.Model):
         'log_retention_days':    ('30',         'Days to keep email logs'),
         'queue_retry_interval':  ('300',        'Seconds between retries'),
         'queue_max_retries':     ('3',          'Max delivery retry attempts'),
+        'debug_logging':         ('false',      'Enable detailed debug logging'),
     }
 
     # ── helpers ────────────────────────────────────────────────

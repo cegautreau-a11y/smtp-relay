@@ -1,15 +1,12 @@
 """
 Flask web application for SMTP Relay management.
-Version 2.2.0
+Version 3.0.1
 
 Designed and built by Christopher McGrath
 
 Loads settings from config.json (passed in via create_app).
 User accounts are managed exclusively through the web UI.
 """
-
-# Author: Christopher McGrath
-# Version: 2.2.0
 
 import datetime
 import json
@@ -24,6 +21,7 @@ from flask import (
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user,
 )
+from flask_wtf.csrf import CSRFProtect
 from functools import wraps
 
 from models import (
@@ -34,7 +32,7 @@ from models import (
 logger = logging.getLogger('smtp_relay')
 
 
-# ── Role-based decorators ──────────────────────────────────────
+# ── Role-based decorators ────────────────────────────────────────
 def role_required(minimum_role):
     """Decorator: require the current user to have at least *minimum_role*."""
     def decorator(f):
@@ -105,6 +103,7 @@ def _flatten_config(cfg: dict) -> dict:
 
     log = cfg.get('logging', {})
     flat['log_retention_days'] = str(log.get('log_retention_days', 30))
+    flat['debug_logging']      = 'true' if log.get('debug_logging', False) else 'false'
 
     return flat
 
@@ -156,6 +155,7 @@ def create_app(config_json: dict | None = None):
     app.relay_config_json = cfg
 
     db.init_app(app)
+    csrf = CSRFProtect(app)
     login_mgr = LoginManager()
     login_mgr.init_app(app)
     login_mgr.login_view = 'login'
@@ -172,6 +172,7 @@ def create_app(config_json: dict | None = None):
         RelayConfig.initialize_defaults()
         if cfg:
             RelayConfig.load_from_dict(_flatten_config(cfg))
+            _encrypt_relay_password_on_startup(cfg)
         _ensure_admin_exists()
 
     @app.context_processor
@@ -189,6 +190,11 @@ def create_app(config_json: dict | None = None):
     # ── Auth ───────────────────────────────────────────────────
     @app.route('/login', methods=['GET', 'POST'])
     def login():
+        """Handle user login.
+        
+        GET: Display the login form.
+        POST: Validate credentials and log the user in.
+        """
         if current_user.is_authenticated:
             return redirect(url_for('dashboard'))
         if request.method == 'POST':
@@ -206,6 +212,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/logout')
     @login_required
     def logout():
+        """Log out the current user."""
         logout_user()
         flash('You have been logged out.', 'info')
         return redirect(url_for('login'))
@@ -214,6 +221,14 @@ def create_app(config_json: dict | None = None):
     @app.route('/')
     @login_required
     def dashboard():
+        """Display the main dashboard with statistics and recent activity.
+        
+        Shows:
+        - Total sent/failed/rejected/queued emails
+        - Today's and hourly statistics
+        - Active domains and credentials count
+        - Recent email logs
+        """
         now = datetime.datetime.utcnow()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         hour_ago = now - datetime.timedelta(hours=1)
@@ -290,6 +305,7 @@ def create_app(config_json: dict | None = None):
 
         cfg.setdefault('logging', {})
         cfg['logging']['log_retention_days'] = RelayConfig.get_int('log_retention_days', 30)
+        cfg['logging']['debug_logging'] = RelayConfig.get_bool('debug_logging', False)
 
         with open(config_path, 'w') as f:
             json.dump(cfg, f, indent=4)
@@ -300,6 +316,11 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def config():
+        """Display and update relay configuration.
+        
+        GET: Show the configuration form with current values.
+        POST: Update configuration values in the database and config.json.
+        """
         if request.method == 'POST':
             keys = [
                 'relay_host', 'relay_port', 'relay_use_tls', 'relay_use_starttls',
@@ -309,13 +330,16 @@ def create_app(config_json: dict | None = None):
                 'enable_tls', 'tls_cert_path', 'tls_key_path',
                 'allowed_source_ips', 'log_retention_days',
                 'queue_retry_interval', 'queue_max_retries',
+                'debug_logging',
             ]
-            bools = {'relay_use_tls', 'relay_use_starttls', 'require_auth', 'enable_tls'}
+            bools = {'relay_use_tls', 'relay_use_starttls', 'require_auth', 'enable_tls', 'debug_logging'}
             for k in keys:
                 if k in bools:
                     v = 'true' if request.form.get(k) else 'false'
                 else:
                     v = request.form.get(k, '')
+                if k == 'debug_logging':
+                    v = 'true' if request.form.get(k) else 'false'
                 RelayConfig.set(k, v)
 
             # Also persist to config.json on disk
@@ -334,7 +358,35 @@ def create_app(config_json: dict | None = None):
             )
             return redirect(url_for('config'))
 
+        # Build configs dict from database, with fallback to config.json
         configs = {k: RelayConfig.get(k) for k in RelayConfig.DEFAULTS}
+        configs['debug_logging'] = RelayConfig.get('debug_logging', 'false')
+        
+        # Fallback: if DB values are empty/defaults, try reading from config.json directly
+        # This handles cases where the app was started without config_json parameter
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    file_config = json.load(f)
+                
+                # If DB has mostly default values, use config.json values instead
+                db_has_real_values = any(
+                    configs.get(k) not in ('', None, v[0]) 
+                    for k, v in RelayConfig.DEFAULTS.items() 
+                    if k != 'relay_auth_password'  # skip password fields
+                )
+                
+                if not db_has_real_values and file_config:
+                    # Use config.json values
+                    flat = _flatten_config(file_config)
+                    for k, v in flat.items():
+                        if k == 'relay_auth_password':
+                            continue  # never expose password from file
+                        configs[k] = v
+            except Exception as exc:
+                logger.warning('Failed to read config.json fallback: %s', exc)
+        
         return render_template('config.html', configs=configs)
 
     # ── Reload config.json ─────────────────────────────────────
@@ -392,6 +444,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/domains')
     @login_required
     def domains():
+        """Display list of allowed sender domains."""
         return render_template('domains.html',
                                domains=AllowedDomain.query.order_by(AllowedDomain.domain).all())
 
@@ -399,6 +452,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def add_domain():
+        """Add a new allowed sender domain."""
         d = request.form.get('domain', '').strip().lower()
         if not d:
             flash('Domain is required.', 'danger')
@@ -417,6 +471,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def toggle_domain(did):
+        """Enable or disable an allowed domain."""
         d = AllowedDomain.query.get_or_404(did)
         d.is_active = not d.is_active
         db.session.commit()
@@ -427,6 +482,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def delete_domain(did):
+        """Delete an allowed domain."""
         d = AllowedDomain.query.get_or_404(did)
         name = d.domain
         db.session.delete(d)
@@ -438,6 +494,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/credentials')
     @login_required
     def credentials():
+        """Display list of SMTP client credentials."""
         return render_template('credentials.html',
                                credentials=SmtpCredential.query.order_by(SmtpCredential.username).all())
 
@@ -445,6 +502,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def add_credential():
+        """Add new SMTP client credentials."""
         u = request.form.get('username', '').strip()
         p = request.form.get('password', '')
         if not u or not p:
@@ -468,6 +526,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def toggle_credential(cid):
+        """Enable or disable an SMTP credential."""
         c = SmtpCredential.query.get_or_404(cid)
         c.is_active = not c.is_active
         db.session.commit()
@@ -478,6 +537,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def delete_credential(cid):
+        """Delete an SMTP credential."""
         c = SmtpCredential.query.get_or_404(cid)
         name = c.username
         db.session.delete(c)
@@ -489,6 +549,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def reset_credential_password(cid):
+        """Reset password for an SMTP credential."""
         c = SmtpCredential.query.get_or_404(cid)
         pw = request.form.get('new_password', '')
         if not pw:
@@ -504,6 +565,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def users():
+        """Display list of web interface users."""
         return render_template('users.html',
                                users=User.query.order_by(User.username).all())
 
@@ -511,6 +573,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def add_user():
+        """Create a new web interface user."""
         u = request.form.get('username', '').strip()
         e = request.form.get('email', '').strip()
         p = request.form.get('password', '')
@@ -541,6 +604,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def toggle_user(uid):
+        """Enable or disable a user account."""
         u = User.query.get_or_404(uid)
         if u.id == current_user.id:
             flash('Cannot disable yourself.', 'danger')
@@ -557,6 +621,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def change_user_role(uid):
+        """Change a user's role."""
         u = User.query.get_or_404(uid)
         new_role = request.form.get('role', '')
         if u.id == current_user.id:
@@ -579,6 +644,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def reset_user_password(uid):
+        """Reset a user's password."""
         u = User.query.get_or_404(uid)
         if not current_user.can_manage_user(u) and u.id != current_user.id:
             flash(f'You cannot manage {u.role_label} users.', 'danger')
@@ -596,6 +662,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def delete_user(uid):
+        """Delete a user account."""
         u = User.query.get_or_404(uid)
         if u.id == current_user.id:
             flash('Cannot delete yourself.', 'danger')
@@ -613,6 +680,15 @@ def create_app(config_json: dict | None = None):
     @app.route('/logs')
     @login_required
     def logs():
+        """Display email logs with filtering and pagination.
+        
+        Query parameters:
+        - page: Page number (default 1)
+        - per_page: Items per page (default 50)
+        - status: Filter by status (sent/failed/queued)
+        - sender: Filter by sender email
+        - search: Search in sender, recipients, or subject
+        """
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         status_f = request.args.get('status', '')
@@ -642,6 +718,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/queue')
     @login_required
     def queue():
+        """Display the email queue with queued, processing, and failed messages."""
         return render_template('queue.html',
             queued=EmailQueue.query.filter_by(status='queued').order_by(EmailQueue.next_retry_at).all(),
             processing=EmailQueue.query.filter_by(status='processing').all(),
@@ -652,6 +729,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def retry_queue(qid):
+        """Manually retry a failed queue entry."""
         e = EmailQueue.query.get_or_404(qid)
         e.status = 'queued'
         e.retry_count = 0
@@ -669,6 +747,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def delete_queue(qid):
+        """Delete a queue entry."""
         db.session.delete(EmailQueue.query.get_or_404(qid))
         db.session.commit()
         flash('Deleted.', 'success')
@@ -678,6 +757,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def retry_all_failed():
+        """Retry all failed queue entries."""
         failed = EmailQueue.query.filter_by(status='failed').all()
         count = 0
         for e in failed:
@@ -698,6 +778,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @operator_required
     def flush_queue():
+        """Permanently delete all failed queue entries."""
         n = EmailQueue.query.filter(EmailQueue.status.in_(['failed'])).delete(synchronize_session=False)
         db.session.commit()
         flash(f'Deleted {n} failed entr{"ies" if n != 1 else "y"} permanently.', 'success')
@@ -708,6 +789,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def restart_server():
+        """Restart the SMTP server."""
         s = getattr(app, '_smtp_server', None)
         if s:
             try:
@@ -721,6 +803,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def stop_server():
+        """Stop the SMTP server."""
         s = getattr(app, '_smtp_server', None)
         if s:
             s.stop()
@@ -731,6 +814,7 @@ def create_app(config_json: dict | None = None):
     @login_required
     @admin_required
     def start_server():
+        """Start the SMTP server."""
         s = getattr(app, '_smtp_server', None)
         if s:
             try:
@@ -744,6 +828,15 @@ def create_app(config_json: dict | None = None):
     @app.route('/api/stats')
     @login_required
     def api_stats():
+        """Get current statistics as JSON.
+        
+        Returns:
+        - sent_today: Emails sent today
+        - failed_today: Emails failed today
+        - sent_this_hour: Emails sent this hour
+        - queued: Number of queued messages
+        - smtp_running: Whether SMTP server is running
+        """
         now = datetime.datetime.utcnow()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         hour_ago = now - datetime.timedelta(hours=1)
@@ -768,6 +861,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/api/logs/recent')
     @login_required
     def api_recent_logs():
+        """Get recent email logs as JSON (last 20 entries)."""
         rows = EmailLog.query.order_by(EmailLog.timestamp.desc()).limit(20).all()
         return jsonify([dict(
             id=r.id,
@@ -780,6 +874,7 @@ def create_app(config_json: dict | None = None):
     @app.route('/api/logs/<int:log_id>/detail')
     @login_required
     def api_log_detail(log_id):
+        """Get detailed information about a specific log entry."""
         log = EmailLog.query.get_or_404(log_id)
         recips = []
         try:
@@ -807,6 +902,11 @@ def create_app(config_json: dict | None = None):
     @app.route('/profile', methods=['GET', 'POST'])
     @login_required
     def profile():
+        """User profile page for changing password and email.
+        
+        GET: Display profile form.
+        POST: Update password or email based on action.
+        """
         if request.method == 'POST':
             act = request.form.get('action')
             if act == 'change_password':
@@ -895,6 +995,7 @@ def _migrate_roles():
 
 
 def _ensure_admin_exists():
+    """Create default admin user if no users exist."""
     if User.query.count() == 0:
         a = User(username='admin', email='admin@localhost',
                  role=Role.SUPER_ADMIN, is_admin=True)
@@ -902,3 +1003,53 @@ def _ensure_admin_exists():
         db.session.add(a)
         db.session.commit()
         logger.info("Created default admin user (admin / admin)")
+
+
+def _encrypt_relay_password_on_startup(cfg: dict):
+    """Check for plain text relay password in config and encrypt it.
+    
+    If a plain text password is found in config.json, encrypt it using bcrypt
+    and store the encrypted version in the database, then replace the plain
+    text in config.json with a placeholder.
+    """
+    import bcrypt
+    
+    dest = cfg.get('relay_destination', {})
+    plain_password = dest.get('auth_password', '')
+    
+    if not plain_password:
+        return
+    
+    # Check if password is already a bcrypt hash (starts with $2)
+    if plain_password.startswith('$2'):
+        # Already encrypted, no action needed
+        logger.info("Relay password is already encrypted")
+        return
+    
+    # Encrypt the plain text password
+    try:
+        encrypted = bcrypt.hashpw(
+            plain_password.encode('utf-8'), bcrypt.gensalt()
+        ).decode('utf-8')
+        
+        # Update the database config
+        RelayConfig.set('relay_auth_password', encrypted)
+        
+        # Update config.json to remove plain text password
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'config.json'
+        )
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+            
+            # Replace with encrypted placeholder marker
+            if 'relay_destination' in config_data:
+                config_data['relay_destination']['auth_password'] = '[ENCRYPTED]'
+            
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=4)
+        
+        logger.info("Relay password has been encrypted and config.json updated")
+    except Exception as e:
+        logger.error("Failed to encrypt relay password: %s", e)

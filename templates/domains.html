@@ -46,12 +46,14 @@
                         <td>
                             <div class="d-flex gap-1">
                                 <form method="POST" action="{{ url_for('toggle_domain', did=domain.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline btn-xs">
                                         {{ 'Disable' if domain.is_active else 'Enable' }}
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ url_for('delete_domain', did=domain.id) }}"
                                       onsubmit="return confirm('Delete domain {{ domain.domain }}?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-xs">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -88,6 +90,7 @@
             <button class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">&times;</button>
         </div>
         <form method="POST" action="{{ url_for('add_domain') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-body">
                 <div class="form-group">
                     <label for="domain">Domain Name</label>
@@ -109,4 +112,3 @@
     </div>
 </div>
 {% endblock %}
-<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
