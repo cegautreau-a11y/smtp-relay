@@ -1,6 +1,6 @@
 """
 Flask web application for SMTP Relay management.
-Version 3.0.1
+Version 3.0.2
 
 Designed and built by Christopher McGrath
 

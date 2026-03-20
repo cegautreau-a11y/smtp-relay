@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**SMTP Mail Relay v3.0.1**
+**SMTP Mail Relay v3.0.2**
 
 This document describes the system design, component interactions, and technical decisions behind the SMTP Mail Relay.
 
@@ -9,33 +9,33 @@ This document describes the system design, component interactions, and technical
 ## System Diagram
 
 ```
-                    ┌─────────────────────────────────────────────┐
-                    │            SMTP Mail Relay v3.0.1            │
-                    │                                             │
-  Applications      │  ┌──────────────┐    ┌──────────────────┐  │     Upstream
-  & Devices         │  │  SMTP Server │    │  Queue Processor  │  │     SMTP Server
-       │            │  │  (aiosmtpd)  │───▶│  (background)     │──│──▶  (Exchange,
-       │  SMTP      │  │  port 2525   │    │  retry + deliver  │  │     O365, etc.)
-       └───────────▶│  └──────────────┘    └──────────────────┘  │
-                    │         │                     │             │
-                    │         ▼                     ▼             │
-                    │  ┌─────────────────────────────────────┐   │
-                    │  │         SQLite Database              │   │
-                    │  │  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │
-                    │  │  │Email Log│ │Queue │ │Config    │  │   │
-                    │  │  │+Headers │ │      │ │Users     │  │   │
-                    │  │  │+Msg-ID  │ │      │ │Domains   │  │   │
-                    │  │  │         │ │      │ │Credentials│  │   │
-                    │  │  └─────────┘ └──────┘ └──────────┘  │   │
-                    │  └─────────────────────────────────────┘   │
-                    │         ▲                                   │
-                    │         │                                   │
-                    │  ┌──────────────┐                           │
-   Administrators   │  │  Flask Web   │                           │
-       │  HTTP      │  │  Interface   │                           │
-       └───────────▶│  │  port 8025   │                           │
-                    │  └──────────────┘                           │
-                    └─────────────────────────────────────────────┘
+                         ┌─────────────────────────────────────────────┐
+                         │            SMTP Mail Relay v3.0.2           │
+                         │                                             │
+   Applications          │  ┌──────────────┐    ┌──────────────────┐  │     Upstream
+   & Devices             │  │  SMTP Server │    │  Queue Processor  │  │     SMTP Server
+        │               │  │  (aiosmtpd)  │───▶│  (background)     │──│──▶  (Exchange,
+        │   SMTP        │  │  port 2525   │    │  retry + deliver  │  │     O365, etc.)
+        └───────────────▶│  └──────────────┘    └──────────────────┘  │
+                         │         │                     │             │
+                         │         ▼                     ▼             │
+                         │  ┌─────────────────────────────────────┐   │
+                         │  │         SQLite Database              │   │
+                         │  │  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │
+                         │  │  │Email Log│ │Queue │ │Config    │  │   │
+                         │  │  │+Headers │ │      │ │Users     │  │   │
+                         │  │  │+Msg-ID  │ │      │ │Domains   │  │   │
+                         │  │  │         │ │      │ │Credentials│ │   │
+                         │  │  └─────────┘ └──────┘ └──────────┘  │   │
+                         │  └─────────────────────────────────────┘   │
+                         │         ▲                                   │
+                         │         │                                   │
+                         │  ┌──────────────┐                           │
+    Administrators       │  │  Flask Web   │                           │
+        │   HTTP         │  │  Interface   │                           │
+        └───────────────▶│  │  port 8025   │                           │
+                         │  └──────────────┘                           │
+                         └─────────────────────────────────────────────┘
 ```
 
 ---
@@ -65,7 +65,7 @@ A Flask application created via the `create_app()` factory pattern. Key responsi
 - **CRUD operations** — Users, domains, SMTP credentials, queue management
 - **SMTP server control** — Start, stop, restart the SMTP listener from the web UI
 - **API endpoints** — `/api/stats`, `/api/logs/recent`, and `/api/logs/<id>/detail` for AJAX updates and email detail retrieval
-- **Queue management** — Individual and bulk retry/delete operations for failed messages, with confirmation prompts (v3.0.1)
+- **Queue management** — Individual and bulk retry/delete operations for failed messages, with confirmation prompts (v3.0.2)
 - **Database migration** — Automatic schema migration on startup via `_migrate_schema()` and `_migrate_roles()`
 - **Context processor** — Injects `smtp_running` status, `Role` class, and version number into all templates (v3.0.0)
 - **SQLite busy timeout** — Configured with a 20-second connection timeout so web requests never hang indefinitely waiting for a database lock
@@ -150,7 +150,7 @@ Jinja2 templates with a shared `base.html` layout:
 | `login.html` | Authentication page |
 | `dashboard.html` | Statistics grid, 7-day chart, recent emails table |
 | `logs.html` | Searchable email log with pagination and detail modal for viewing full email headers and Message-ID |
-| `queue.html` | Queued, processing, and failed message tables with confirmation prompts for delete actions (v3.0.1) and informational notice for processing messages |
+| `queue.html` | Queued, processing, and failed message tables with confirmation prompts for delete actions (v3.0.2) and informational notice for processing messages |
 | `domains.html` | Domain allowlist management |
 | `credentials.html` | SMTP credential management |
 | `config.html` | Configuration editor with reload/save buttons |
@@ -312,7 +312,7 @@ Email headers contain critical diagnostic information — routing paths, authent
 ### Why Three-Phase Delivery?
 The delivery thread previously held the SQLAlchemy session (and thus the SQLite write lock) open for the entire duration of the SMTP connection — up to 30 seconds. This caused web page requests to hang waiting for the lock. The three-phase approach (read → network → write) ensures the database is never locked during network I/O, keeping the web interface responsive regardless of upstream SMTP server performance.
 
-### Why Queue Delete Confirmations (v3.0.1)?
+### Why Queue Delete Confirmations (v3.0.2)?
 Accidental deletions of queued messages can result in lost emails. The confirmation prompts ensure administrators explicitly acknowledge the destructive nature of delete actions before they take effect.
 
 ### Why Version Badge (v3.0.0)?

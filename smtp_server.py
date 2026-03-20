@@ -1,6 +1,6 @@
 """
 Async SMTP Relay Server – Windows-compatible.
-Version 3.0.1
+Version 3.0.2
 
 Designed and built by Christopher McGrath
 

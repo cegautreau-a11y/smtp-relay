@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2] — 2026-03-18
+
+### Added
+- **CSRF protection** — Added Flask-WTF CSRFProtect to secure forms against cross-site request forgery attacks
+- **Debug logging** — New configurable debug logging option for troubleshooting SMTP issues
+
+### Changed
+- **Code refactoring** — Major internal refactoring across app.py, models.py, and smtp_server.py for improved maintainability
+- **Config loading improvements** — Enhanced configuration loading with better fallback handling
+- **Version bump** — All source files updated to v3.0.2
+
+---
+
 ## [3.0.1] — 2026-03-18
 
 ### Added

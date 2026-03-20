@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks you through installing and running the SMTP Mail Relay v3.0.1 on a Windows Server.
+This guide walks you through installing and running the SMTP Mail Relay v3.0.2 on a Windows Server.
 
 ---
 
@@ -150,7 +150,7 @@ On first run, the application will:
 You will see a startup banner:
 ```
 ============================================================
-  SMTP Mail Relay  v3.0.1
+  SMTP Mail Relay  v3.0.2
   Designed and built by Christopher McGrath
 ============================================================
   Web Interface : http://0.0.0.0:8025
@@ -253,7 +253,7 @@ Open the web interface and verify:
 - SMTP status shows **Running** (green indicator in the header)
 - The test email appears in **Email Logs**
 - Statistics update on the **Dashboard**
-- Version badge in the sidebar footer shows **v3.0.1**
+- Version badge in the sidebar footer shows **v3.0.2**
 
 ---
 
@@ -276,10 +276,10 @@ Open the web interface and verify:
 
 ## Upgrading
 
-### From v2.2.0 or later to v3.0.1
+### From v2.2.0 or later to v3.0.2
 
 1. Stop the running application (`Ctrl+C` or stop the Windows service)
-2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`, `requirements.txt`) with the v3.0.1 versions
+2. Replace all source files (`app.py`, `models.py`, `smtp_server.py`, `run.py`, `templates/`, `static/`, `requirements.txt`) with the v3.0.2 versions
 3. Keep your existing `config.json` and `smtp_relay.db` — they are fully compatible
 4. Start the application with `python run.py`
 5. The database is automatically migrated if needed — no manual changes required
@@ -289,8 +289,8 @@ Open the web interface and verify:
 - Version badge displayed in sidebar footer
 - Enhanced color palette and improved dark mode
 - Better stat cards, tables, and animations
-- Queue delete confirmations (v3.0.1) to prevent accidental deletions
-- Processing section notice (v3.0.1) explaining why active messages cannot be cancelled
+- Queue delete confirmations (v3.0.2) to prevent accidental deletions
+- Processing section notice (v3.0.2) explaining why active messages cannot be cancelled
 
 ### From any version to v2.2.0
 

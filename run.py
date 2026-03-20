@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SMTP Mail Relay – Windows Launcher
-Version 3.0.1
+Version 3.0.2
 ===================================
 Designed and built by Christopher McGrath
 
@@ -185,7 +185,7 @@ def main():
 
     print()
     print('=' * 60)
-    print('  SMTP Mail Relay  v3.0.1')
+    print('  SMTP Mail Relay  v3.0.2')
     print('  Designed and built by Christopher McGrath')
     print('=' * 60)
     print(f'  Web Interface : http://{web_host}:{web_port}')
