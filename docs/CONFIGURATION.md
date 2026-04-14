@@ -1,6 +1,6 @@
 # Configuration Reference
 
-**SMTP Mail Relay v3.0.2**
+**SMTP Mail Relay v3.0.1**
 
 All settings are stored in `config.json` in the project root directory. The application reads this file on startup and seeds the values into the database. Settings can also be changed at runtime through the web interface under **Configuration**.
 
@@ -182,12 +182,12 @@ These settings control where the relay forwards mail for final delivery.
 |---|---|---|
 | **Retry** | Individual | Requeue a single failed message for another delivery attempt |
 | **Retry All Failed** | Bulk | Requeue all failed messages at once for redelivery |
-| **Delete** | Individual | Permanently remove a single failed message (with confirmation prompt in v3.0.2) |
+| **Delete** | Individual | Permanently remove a single failed message (with confirmation prompt in v3.0.1) |
 | **Delete All Failed** | Bulk | Permanently remove all failed messages (with confirmation prompt) |
 
 All retry actions reset the retry counter to zero and schedule immediate redelivery.
 
-> **v3.0.2 Note:** Delete actions now prompt for confirmation to prevent accidental deletions. The Queue page also shows an informational notice for actively processing messages explaining why they cannot be cancelled.
+> **v3.0.1 Note:** Delete actions now prompt for confirmation to prevent accidental deletions. The Queue page also shows an informational notice for actively processing messages explaining why they cannot be cancelled.
 
 ---
 

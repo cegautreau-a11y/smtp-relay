@@ -61,7 +61,7 @@ On first run, dependencies are installed automatically. Navigate to **http://loc
 - **Improved tables** — better zebra striping and hover states
 - **Button refinements** — better hover states and visual feedback
 
-### Queue UX Improvements (v3.0.2)
+### Queue UX Improvements (v3.0.1)
 - **Queue cancellation confirmations** — delete buttons prompt for confirmation to prevent accidental deletions
 - **Processing section notice** — informational alert explaining why actively processing messages cannot be cancelled
 
@@ -102,7 +102,7 @@ These are managed in the web interface (not in config.json):
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 SMTP Mail Relay v3.0.2                   │
+│                 SMTP Mail Relay v3.0.1                   │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
 │  │  SMTP Server │───▶│  Email Queue │───▶│  Upstream │ │
 │  │  (aiosmtpd)  │    │  (SQLite)    │    │  Relay    │ │
@@ -212,9 +212,9 @@ smtp-relay\
 
 ## Upgrading
 
-### From v2.2.0 or later to v3.0.2
+### From v2.2.0 or later to v3.0.1
 
-1. Replace all source files with v3.0.2 versions
+1. Replace all source files with v3.0.1 versions
 2. Keep your existing `config.json` and `smtp_relay.db`
 3. Start the application — database is auto-migrated if needed
 4. No manual changes required
@@ -227,7 +227,7 @@ smtp-relay\
 - Queue delete confirmations to prevent accidental deletions
 - Processing section notice for active messages
 
-**What's new in v3.0.2:**
+**What's new in v3.0.1:**
 - Queue cancellation confirmations
 - Processing section notice
 
