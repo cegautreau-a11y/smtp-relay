@@ -1,135 +1,233 @@
+<div align="center">
+
 # SMTP Mail Relay
 
-A full-featured SMTP mail relay server with a modern web management interface. Runs on **Windows Server** or **Linux/Docker** with just **Python 3.10+** and a **PostgreSQL** database — PostgreSQL is the only supported backend (v4.3.0+).
+**A complete SMTP server *and* mail relay — with a modern web management interface.**
+
+Accept mail on your own SMTP listener, deliver it directly to recipient MX hosts,
+or forward it through an upstream smarthost — DKIM-signed, queued, retried, and
+fully logged. One Python process. One PostgreSQL database. Managed entirely from the browser.
+
+![Version](https://img.shields.io/badge/version-4.5.1-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12%2B-336791?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/docker--compose-2496ED?logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+</div>
 
 ---
 
-## Quick Start
+> [!TIP]
+> **Not just a relay.** Despite the name, this is a **fully functional SMTP server** in its own right:
+> any mail client or application connects to port **2525**, authenticates, and sends — and the server
+> can deliver the mail itself, straight to each recipient domain's MX hosts, with **no upstream
+> provider required**.
 
-```powershell
-# 1. Open terminal in the folder
-cd C:\path\to\smtp-relay
+## Contents
 
-# 2. Point the relay at your PostgreSQL server
-$env:DATABASE_URL = "postgresql+psycopg2://smtp:password@localhost:5432/smtp_relay"
+- [Overview](#overview)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Connecting Applications](#connecting-applications)
+- [User Roles](#user-roles)
+- [Deployment](#deployment)
+- [Upgrading](#upgrading)
+- [Troubleshooting](#troubleshooting)
+- [Security Recommendations](#security-recommendations)
+- [Requirements](#requirements)
+- [Documentation](#documentation)
+- [Project Layout](#project-layout)
+- [License](#license)
 
-# 3. Run the launcher
-python.exe run.py
-```
+---
 
-On first run, dependencies are installed automatically. On **first boot** the application creates the initial `admin` account and generates a **random password**, which is printed once to the console/log (look for the `WARNING` line in the first-boot output). Navigate to **http://localhost:8025** and log in as `admin` with that generated password.
+## Overview
 
-> ⚠️ **The initial admin password is shown only once — save it and change it after first login!**
+SMTP Mail Relay is a self-hosted mail platform that runs as a **single Python process** alongside a
+**PostgreSQL** database. It ships three cooperating components:
 
-### Web Server
+| Component | What it does |
+|---|---|
+| **SMTP server** (aiosmtpd, port 2525) | Accepts mail from your applications and devices: SMTP AUTH (LOGIN/PLAIN), STARTTLS, size/recipient limits, IP + sender-domain allowlists, per-credential and global rate limits |
+| **Delivery engine + queue** (PostgreSQL) | Signs with DKIM, then delivers via your upstream smarthost (**relay mode**) or directly to each recipient domain's MX hosts (**direct mode**), retrying transient failures with linear backoff |
+| **Web management UI** (Flask, port 8025) | Dashboard, live configuration, domains, credentials, DKIM keys, users & roles, searchable logs, and full queue control |
 
-On **Linux and Docker** the web interface is automatically served by **gunicorn** (production WSGI server, single worker, threaded — `WEB_THREADS` request threads, default `4`). On **Windows** gunicorn is not available, so the app falls back to the Flask development server and logs a warning (`gunicorn not available on this platform …`) — acceptable for single-server use, but put it behind a reverse proxy (IIS, nginx) for serious production traffic.
+There are no separate services to babysit — the SMTP listener, queue processor, and web UI all run
+in one process, and PostgreSQL is both the message bus and the configuration store.
+
+### Two delivery modes
+
+| Mode | How mail leaves the server | Choose this when |
+|---|---|---|
+| **Relay** (default) | Everything is forwarded to one upstream smarthost (Microsoft 365, SendGrid, your ISP's relay…), with AUTH and STARTTLS/implicit TLS | You have a mail provider and want it to handle reputation, SPF, and downstream routing |
+| **Direct** | Per recipient domain: MX records are resolved, sorted by preference, and tried in order (failover across up to 5 hosts) — no upstream provider needed | You want true self-hosted delivery straight to the internet, domain by domain |
+
+Both modes sign outgoing mail with **DKIM** (per-domain RSA-2048 keys, `relaxed/relaxed`) before it
+leaves the server, and every message is logged with full headers.
 
 ---
 
 ## Features
 
-### SMTP Relay Engine
-- **Async SMTP server** (aiosmtpd) — high performance, pure Python
-- **Configurable HELO hostname** — control your server identity for better deliverability
-- **Domain allowlist** — restrict which sender domains can relay
-- **SMTP AUTH** (LOGIN) — require client authentication
-- **Per-credential rate limiting** — control sending limits per user
-- **Email queue** with automatic retry and linear backoff (retry interval x attempt count)
-- **Failed email retention** — failed messages held until manually retried or deleted
-- **TLS/STARTTLS support** — for both listener and upstream connections
-- **IP allowlist** — restrict connecting source IPs
-- **Configurable limits** — message size, recipients, global rate
-- **DKIM signing** — per-domain RSA-2048 keys, signed at delivery time, DNS TXT record shown for publication
-- **Direct delivery mode** — deliver straight to each recipient domain's MX hosts without an upstream relay
-- **Microsoft 365 sign-in** — optional Entra ID OIDC for the web UI; local break-glass admin login always available
+### SMTP Server
+- **Async, high-performance listener** (aiosmtpd) — SMTPUTF8 and 8BITMIME advertised
+- **SMTP AUTH (LOGIN and PLAIN)** — bcrypt-hashed credentials managed in the web UI, with per-credential send limits
+- **Outlook-compatible AUTH LOGIN** — canonical SASL challenges, so strict clients (Outlook) authenticate reliably
+- **STARTTLS support** on the listener — point it at your own PEM certificate/key
+- **Live security controls** — `require_auth` is re-read from the database on every `MAIL FROM`; no restart needed
+- **IP allowlist** — restrict connecting source IPs (CIDR, IPv4 + IPv6, fails closed on bad entries)
+- **Sender-domain allowlist** — restrict which sender domains may hand off mail
+- **Configurable limits** — message size (25 MB default), recipients per message (100), global hourly rate (1000)
+- **Configurable identity** — HELO/banner hostname for better deliverability
+
+### Delivery & Queue
+- **Relay mode** — one upstream smarthost, with authentication and STARTTLS or implicit TLS
+- **Direct mode** — deliver straight to each recipient domain's MX hosts, in preference order, with automatic failover; NULL MX and nonexistent domains fail permanently, never pointlessly retried
+- **DKIM signing at delivery time** — per-domain RSA-2048 keys, encrypted at rest, DNS TXT record shown in the UI for publication
+- **Durable queue** — PostgreSQL-backed, with automatic retry and linear backoff (interval × attempt count, 3 attempts by default)
+- **Failed-mail retention** — failed messages are held until manually retried or deleted
+- **Restart-safe** — messages stranded mid-delivery by a restart are automatically requeued on boot
+- **Bounded delivery concurrency** — 10 parallel delivery slots keep the process healthy under load
 
 ### Web Management Interface
-- **Dashboard** — real-time stats, 7-day chart, recent emails, server controls
-- **Configuration** — edit all relay settings from the browser
-- **Allowed Domains** — manage permitted sender domains
-- **SMTP Credentials** — create auth accounts with per-credential rate limits
-- **Users** — role-based access control (Super Admin, Admin, Operator, Viewer)
-- **Email Logs** — searchable, filterable, paginated with full header detail view
-- **Queue** — view pending/failed, retry individual or all failed, delete with confirmation
-- **Profile** — change password and email
-- **Server Control** — start/stop/restart SMTP from dashboard
-- **Version badge** — version number displayed in sidebar footer
+- **Dashboard** — real-time stats, 7-day chart, recent emails, server start/stop/restart controls
+- **Configuration page** — edit every setting from the browser; changes apply without touching files
+- **Allowed Domains / SMTP Credentials / DKIM Keys** — full CRUD, Operator and above
+- **User management** — five-tier role-based access control (see [User Roles](#user-roles))
+- **Email logs** — searchable, filterable, paginated, with a full header detail view
+- **Queue manager** — view pending/failed, retry individually or all at once, delete with confirmation
+- **Microsoft 365 sign-in** — optional Entra ID (OIDC) for the web UI; a local break-glass admin login is always available
+- **Permission-filtered sidebar** — each user sees only what their role can actually use
 
-### Web Interface Redesign (v3.0.0)
-- **Complete modern UI** — cleaner design with improved visual hierarchy
-- **Enhanced color palette** — refined indigo/blue primary colors with better contrast
-- **Improved sidebar** — smoother hover states and active indicator bar
-- **Better stat cards** — larger values with gradient icon backgrounds
-- **Refined dark mode** — improved contrast and color balance
-- **Enhanced animations** — smoother page transitions and hover effects
-- **Improved tables** — better zebra striping and hover states
-- **Button refinements** — better hover states and visual feedback
-
-### Queue UX Improvements (v3.0.1)
-- **Queue cancellation confirmations** — delete buttons prompt for confirmation to prevent accidental deletions
-- **Processing section notice** — informational alert explaining why actively processing messages cannot be cancelled
-
-### Reliability
-- **No page hanging** — delivery threads release DB before network calls
+### Reliability & Operations
+- **Single-process design** — one thing to run, monitor, and restart; no IPC to break
+- **No page hangs** — delivery threads release their database session before any network I/O
 - **Connection pooling** — pooled PostgreSQL connections with pre-ping health checks and bounded waits
-- **Python 3.14 compatible** — dependencies are checked at startup and installed if missing
-- **Automatic migrations** — schema updates on upgrade
+- **Rotating logs** — size-rotated app log and optional debug log on the data volume
+- **Health-checked containers** — the compose stack ships with a web healthcheck (`/login` probe); Portainer stack supported
+- **Automatic schema migrations** — the database upgrades itself on start
+
+---
+
+## Quick Start
+
+### Docker Compose (recommended)
+
+```bash
+git clone https://github.com/cegautreau-a11y/smtp-relay-beta.git
+cd smtp-relay-beta
+cp .env.example .env
+# Edit .env — SECRET_KEY and POSTGRES_PASSWORD are required
+docker compose up -d --build
+```
+
+Then open **http://localhost:8025**.
+The stack includes a `postgres:16-alpine` service with a healthcheck; all state lives in the
+`pg-data` volume. To change ports, remap the **host** side with `WEB_PORT_HOST` / `SMTP_PORT_HOST`
+— the in-container ports (8025 / 2525) are pinned.
+
+### Windows (bare metal)
+
+```powershell
+# 1. Open a terminal in the project folder
+cd C:\path\to\smtp-relay
+
+# 2. Point the app at your PostgreSQL server
+$env:DATABASE_URL = "postgresql+psycopg2://smtp:password@localhost:5432/smtp_relay"
+
+# 3. Run the launcher (installs missing dependencies automatically)
+python.exe run.py
+```
+
+On **Linux without Docker**, run the same way with `python3 run.py` — but note the project is
+packaged and supported for Linux via Docker (gunicorn serves the web UI there; on Windows the Flask
+development server is used with a logged warning — fine for single-server use, but put it behind a
+reverse proxy for serious production traffic).
+
+### First boot
+
+The application creates the schema, then creates the initial **`admin`** account (Super Admin) and
+generates a **random password**, printed **once** to the console/log (look for the `WARNING` line).
+Log in at `http://localhost:8025` as `admin` with that password.
+
+> [!WARNING]
+> **The initial admin password is shown only once — save it and change it after first login!**
 
 ---
 
 ## Configuration
 
-The **database is the configuration store**. Environment variables (or the bootstrap config) seed it on **first boot** into an empty database; afterwards the database owns the configuration and edits happen in the web UI. To re-apply environment variables, empty the database.
-
-The one variable read on **every** boot is connection info:
+**The database is the configuration store.** Environment variables seed it on **first boot** into an
+empty database; after that the database owns the configuration and edits happen in the web UI.
+To re-apply environment variables, empty the database. Three are read on **every** boot:
 
 | Variable | Meaning |
 |---|---|
 | `DATABASE_URL` | **Required.** e.g. `postgresql+psycopg2://smtp:password@localhost:5432/smtp_relay` |
+| `SECRET_KEY` | Resolved every boot (the stored key wins; a changed env value logs a warning and never rotates) |
+| `LOG_FILE` | Log destination (empty = stdout only) |
 
-Other variables (`WEB_PORT`, `RELAY_HOST`, `REQUIRE_AUTH`, …) are first-boot seeds — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the complete reference.
+Notable first-boot seeds (see [.env.example](.env.example) for the full list):
 
-### Web UI Settings
-These are managed in the web interface:
-- Allowed domains
-- SMTP credentials
-- Web users and roles
+| Variable | Default | Meaning |
+|---|---|---|
+| `SECRET_KEY` | random | Session/CSRF key **and** the encryption root for stored secrets (upstream passwords, DKIM keys) |
+| `SMTP_LISTEN_PORT` | `2525` | SMTP listener port |
+| `WEB_PORT` | `8025` | Web UI port |
+| `REQUIRE_AUTH` | `true` | Require SMTP AUTH before accepting mail |
+| `DELIVERY_MODE` | `relay` | `relay` (smarthost) or `direct` (recipient MX) |
+| `RELAY_HOST` / `RELAY_PORT` | `smtp.example.com` / `25` | Upstream smarthost for relay mode |
+| `MAX_MESSAGE_SIZE` | `26214400` | Max message size in bytes (25 MB) |
+| `GLOBAL_RATE_LIMIT` | `1000` | Messages per hour, all credentials |
+| `QUEUE_RETRY_INTERVAL` / `QUEUE_MAX_RETRIES` | `300` / `3` | Queue retry policy |
+
+Everything else — domains, credentials, DKIM, users — is managed in the web interface.
+The complete reference lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                 SMTP Mail Relay v4.5.1                   │
-│  ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
-│  │  SMTP Server │───▶│  Email Queue │───▶│  Upstream │ │
-│  │  (aiosmtpd)  │    │(PostgreSQL)  │    │  Relay    │ │
-│  │  Port 2525   │    │  + Retry     │    │  Server   │ │
-│  └──────────────┘    └──────────────┘    └───────────┘ │
-│         │                    │                           │
-│         ▼                    ▼                           │
-│  ┌──────────────┐    ┌──────────────┐                   │
-│  │  Auth/Domain │    │  Email Logs  │                   │
-│  │  Rate Limit  │    │  + Headers  │                   │
-│  └──────────────┘    └──────────────┘                   │
-│                              ▼                           │
-│                    ┌──────────────────┐                 │
-│                    │  Web Interface   │                 │
-│                    │  (Flask)         │                 │
-│                    │  Port 8025       │                 │
-│                    └──────────────────┘                 │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["Your applications<br/>(SMTP clients)"] -->|"SMTP :2525<br/>AUTH · STARTTLS"| B["SMTP Server<br/>(aiosmtpd)"]
+    B --> C["Checks<br/>auth · domains · IPs<br/>rate limits"]
+    C --> Q[("Queue<br/>PostgreSQL<br/>retry + backoff")]
+    Q --> D["DKIM<br/>signing"]
+    D -->|"relay mode"| R["Upstream<br/>smarthost"]
+    D -->|"direct mode"| M["Recipient<br/>MX hosts"]
+    Q -.- L["Email logs<br/>(PostgreSQL)"]
+    W["Web UI (Flask)<br/>:8025"] --- PG[("PostgreSQL")]
+    B --- PG
+    Q --- PG
 ```
 
-All components run in a single Python process — no separate services.
+**Key design facts:**
+
+- **One process, one database.** Web UI, SMTP engine, and queue processor share PostgreSQL — the
+  database *is* the message bus; there is no inter-process communication. PostgreSQL 12+ is the only
+  supported backend.
+- **DB-wins configuration.** Environment variables seed `relay_config` once on first boot; the
+  database is runtime truth afterwards, read fresh per SMTP command.
+- **3-phase delivery.** Each message is snapshotted in a short database context, the session is
+  released *before* any network I/O, and results are written back in a fresh context — the web UI
+  never hangs behind a slow upstream.
+- **Secrets are encrypted at rest.** Upstream/direct auth passwords and DKIM private keys are stored
+  as Fernet-encrypted envelopes keyed from `web_secret_key`.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design.
 
 ---
 
 ## Connecting Applications
 
+Point any SMTP client at the server — host, port `2525`, and an SMTP credential created in the web UI.
+
 ### Python (smtplib)
+
 ```python
 import smtplib
 from email.mime.text import MIMEText
@@ -145,6 +243,7 @@ with smtplib.SMTP("your-server-ip", 2525) as smtp:
 ```
 
 ### Node.js (Nodemailer)
+
 ```javascript
 const nodemailer = require("nodemailer");
 const transporter = nodemailer.createTransport({
@@ -161,107 +260,93 @@ transporter.sendMail({
 ```
 
 ### Generic / WordPress / PHP
+
 | Setting | Value |
 |---------|-------|
 | Server | Your server IP |
 | Port | `2525` |
-| Auth | LOGIN / PLAIN |
+| Auth | LOGIN or PLAIN |
 | Username | Your SMTP credential |
 | Password | Your credential password |
-| TLS | Optional (if configured) |
+| TLS | Optional STARTTLS (if configured) |
 
 ---
 
-## Running as a Windows Service
+## User Roles
+
+Five tiers, least to most privileged. Higher roles inherit everything below them.
+
+| Role | Can do |
+|---|---|
+| **Viewer** | Read-only: dashboard, email logs, queue |
+| **Queue Manager** | Everything above + full retry-queue control: retry entries, Retry All Failed, delete entries, Delete All Failed — nothing else |
+| **Operator** | Everything above + manage allowed domains, SMTP credentials, and DKIM keys |
+| **Admin** | Everything above + edit configuration, start/stop/restart the SMTP server, manage non-admin users |
+| **Super Admin** | Everything above + manage Admin and Super Admin accounts (the initial `admin` account) |
+
+Details: [docs/USER_ROLES.md](docs/USER_ROLES.md).
+
+---
+
+## Deployment
+
+| Target | Guide |
+|---|---|
+| Docker Compose | [docs/INSTALLATION.md](docs/INSTALLATION.md) (Step 8) — stack includes PostgreSQL |
+| Portainer | [docs/PORTAINER.md](docs/PORTAINER.md) — web-editor or repository method |
+| Windows service | Below — NSSM or Task Scheduler |
+| Reverse proxy (HTTPS) | [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) — nginx, Caddy, Cloudflare |
+
+### Running as a Windows Service
 
 Use **NSSM** (Non-Sucking Service Manager):
 
-> **Note:** On Windows the web interface runs on the Flask development server (gunicorn is Linux/Docker-only); the SMTP engine and queue are unaffected.
-
-```
+```bat
 nssm install SmtpRelay "C:\Python314\python.exe" "C:\smtp-relay\run.py"
 nssm start SmtpRelay
 ```
 
-Or use Task Scheduler with "Run whether user is logged on or not". See [docs/INSTALLATION.md](docs/INSTALLATION.md) for full instructions.
+Or use Task Scheduler with **"Run whether user is logged on or not"**.
+Full instructions: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
----
+> [!NOTE]
+> On Windows the web UI runs on the Flask development server (gunicorn is Linux/Docker-only);
+> the SMTP engine and queue are unaffected.
 
-## File Structure
+### Behind a reverse proxy
 
-```
-smtp-relay\
-├── run.py                  # Entry point
-├── requirements.txt        # Python packages
-├── app.py                  # Flask web application
-├── crypto_utils.py         # Fernet ENC1 secret encryption
-├── models.py               # Database models
-├── smtp_server.py          # SMTP relay engine
-├── Dockerfile              # Container image (python:3.12-slim)
-├── docker-compose.yml      # Docker deployment (includes postgres service)
-├── docker-compose.portainer.yml  # Portainer variant (no build:)
-├── README.md               # This file
-├── CHANGELOG.md            # Version history
-├── LICENSE                 # MIT License
-├── docs\
-│   ├── ARCHITECTURE.md     # System design
-│   ├── CONFIGURATION.md    # Full config reference
-│   ├── INSTALLATION.md     # Setup guide
-│   ├── USER_ROLES.md       # RBAC guide
-│   └── PORTAINER.md        # Portainer deployment
-├── static\css\style.css    # Stylesheet (+ self-hosted Inter font)
-└── templates\              # Jinja2 templates
-```
+Run the UI behind HTTPS and set the trio in the web UI: `web_secure_cookies=true`,
+`web_trust_proxy=true`, and an exact `azure_redirect_uri` (required for Microsoft sign-in).
+Step-by-step: [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md).
 
 ---
 
 ## Upgrading
 
-### From v4.2.1 to v4.3.0
+### From v4.4.x to v4.5.1
 
-1. Replace all source files with v4.3.0 versions
-2. Set `DATABASE_URL` — it is now **required** (in v4.2.1 it was optional)
-3. Start the application — the database keeps all data **and** is now the only configuration store. **Nothing migrates from `config.json`**: v4.3.0 does not read that file at all. Installs already on v4.2.1 *database mode* already hold their web settings and `web_secret_key` in PostgreSQL and carry over untouched; SQLite + `config.json` installs have **no** in-repo migration path (re-enter settings after the move — see the next line)
-4. `config.json`, `DATABASE_PATH`, and `CONFIG_PATH` are gone; SQLite installs have **no** in-repo migration path — move to PostgreSQL with external tooling before upgrading
+Pull and rebuild/restart (`docker compose up -d --build` or replace the source files). No
+configuration changes; existing users keep their roles. Recent highlights:
 
-### From v4.3.0 to v4.4.0
+- **v4.5.1** — the sidebar shows only what each role can use; the domains/credentials/DKIM pages are
+  blocked server-side below Operator (Viewer and Queue Manager accounts lose their read-only view — intended)
+- **v4.5.0** — new **Queue Manager** role for helpdesk staff who only un-stick stuck mail
+- **v4.4.4** — fixed Outlook hanging during AUTH LOGIN
+- **v4.4.3** — the app log lands on the data volume (`/app/data/relay.log`) and the Debug Logging
+  toggle actually works
+- **v4.4.2** — fixed Microsoft sign-in (MSAL scope validation)
 
-Replace the source files (or `docker compose up -d --build`) and restart — no configuration changes required. Highlights: direct delivery now fails over across the recipient domain's MX hosts, queue rows stranded in `processing` by a restart are requeued on boot, the dashboard daily chart works again on PostgreSQL, and several web-UI/security fixes — see the [CHANGELOG](CHANGELOG.md). If you plan to put the web UI behind a reverse proxy, see [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md).
+### From v4.2.1 to v4.3.0 (breaking)
 
-### From v4.4.x to v4.5.0
+1. Replace all source files with v4.3.0+ versions
+2. Set `DATABASE_URL` — it is now **required**; PostgreSQL is the **only** backend
+3. Start the application — the database keeps all data and becomes the only configuration store
+4. `config.json`, `DATABASE_PATH`, and `CONFIG_PATH` are gone. SQLite installs have **no** in-repo
+   migration path — move to PostgreSQL with external tooling before upgrading
 
-Pull and rebuild/restart. Adds the **Queue Manager** role (retry queue only — see [docs/USER_ROLES.md](docs/USER_ROLES.md)); Admins can assign it in User Management. v4.4.2 is **required for Microsoft sign-in** (v4.4.0's scope list tripped an MSAL validation error before Microsoft was ever contacted). v4.4.3 makes logging work as expected: the app log defaults to `/app/data/relay.log` (rotated 20 MB x 5) on the `smtp-data` volume, and the Configuration page's **Debug Logging** toggle now actually works (it previously did nothing — the `debug_logging` setting was never read back; when enabled it writes `data/smtp_debug.log`). Set `LOG_FILE=` (empty) to return to stdout-only. v4.4.4 fixes Outlook and other strict SASL clients hanging during AUTH LOGIN (the server now sends the canonical `Username:` / `Password:` challenges). Existing users keep their roles. See the [CHANGELOG](CHANGELOG.md).
+### Older releases
 
-### From v2.2.0 or later to v3.0.1
-
-1. Replace all source files with v3.0.1 versions
-2. Keep your existing `config.json` and `smtp_relay.db`
-3. Start the application — database is auto-migrated if needed
-4. No manual changes required
-
-**What's new in v3.0.x:**
-- Complete web interface redesign with modern UI
-- Version badge displayed in sidebar footer
-- Enhanced color palette and improved dark mode
-- Better stat cards, tables, and animations
-- Queue delete confirmations to prevent accidental deletions
-- Processing section notice for active messages
-
-**What's new in v3.0.1:**
-- Queue cancellation confirmations
-- Processing section notice
-
-### From any version to v2.2.0
-
-1. Replace all source files with v2.2.0 versions
-2. Keep your existing `config.json` and `smtp_relay.db`
-3. Start the application — database is auto-migrated
-4. No manual changes required
-
-**What's new in v2.2.0:**
-- Fixed page hanging issues (delivery threads release DB before network calls)
-- `message_id` column added to email logs
-- Python 3.14 compatibility
+See the [CHANGELOG](CHANGELOG.md) for the full history.
 
 ---
 
@@ -270,32 +355,33 @@ Pull and rebuild/restart. Adds the **Queue Manager** role (retry queue only — 
 | Problem | Solution |
 |---------|----------|
 | Startup error: PostgreSQL required | Set `DATABASE_URL` to your PostgreSQL server |
+| Docker healthcheck failing | Don't change the in-container `WEB_PORT` — remap the host side with `WEB_PORT_HOST` |
 | Port already in use | Change the port in the web UI (Configuration — restart required) |
-| Can't connect from other machines | Check firewall rules; ensure host is `0.0.0.0` |
-| STARTTLS errors | Set `helo_hostname` to a valid FQDN |
-| Authentication required | Create credentials in web UI |
-| Page hangs / slow responses | Upgrade to v2.2.0 or later |
-| Message-ID blank in logs | Upgrade to v2.2.0 or later |
+| Can't connect from other machines | Check firewall rules; ensure the host binding is `0.0.0.0` |
+| STARTTLS errors | Set `banner_hostname` (`BANNER_HOSTNAME`) to a valid FQDN |
+| Authentication required (SMTP) | Create a credential in the web UI (Credentials page) |
+| Outlook freezes when sending | Upgrade to v4.4.4+ (canonical AUTH LOGIN challenges) |
+| Entra ID sign-in fails | Set an exact `azure_redirect_uri` and restart — see [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) |
 
 ---
 
 ## Security Recommendations
 
 1. **Change the initial admin password** immediately (it is printed to the console/log on first boot)
-2. **Set a strong `SECRET_KEY`** environment variable (it seeds the database-stored secret key on first boot)
-3. **Enable `require_auth`** to prevent open relay
-4. **Add allowed domains** to restrict senders
-5. **Set `allowed_source_ips`** if only known hosts connect
-6. **Use TLS** where possible
-7. Run behind a reverse proxy with HTTPS in production — setup guide: [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) (`web_secure_cookies=true` + `web_trust_proxy=true` + an exact `azure_redirect_uri`)
+2. **Set a strong, long random `SECRET_KEY`** (it seeds the database-stored secret key on first boot and encrypts stored secrets)
+3. **Keep `require_auth` on** to prevent open-relay abuse (it's on by default)
+4. **Add allowed domains** to restrict which senders may relay
+5. **Set `allowed_source_ips`** if only known hosts connect (bad entries fail closed)
+6. **Use TLS** — STARTTLS on the listener, and STARTTLS/implicit TLS toward upstreams
+7. **Run the web UI behind a reverse proxy with HTTPS** in production — see [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md)
 
 ---
 
 ## Requirements
 
-- **Python 3.10+** (3.14 supported)
-- **PostgreSQL 12+** (the only supported database)
-- Windows Server 2016+ / Windows 10/11, or Linux/Docker
+- **Python 3.10+** (3.14 supported; the Docker image uses 3.12-slim)
+- **PostgreSQL 12+** — the only supported database
+- Windows Server 2016+ / Windows 10/11, or Linux via Docker
 
 ---
 
@@ -304,13 +390,44 @@ Pull and rebuild/restart. Adds the **Queue Manager** role (retry queue only — 
 | Document | Description |
 |----------|-------------|
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) | Step-by-step setup guide |
-| [docs/PORTAINER.md](docs/PORTAINER.md) | Deploy on Docker via Portainer |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Complete configuration reference |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design overview |
 | [docs/USER_ROLES.md](docs/USER_ROLES.md) | Role-based permissions |
+| [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) | HTTPS / reverse proxy setup |
+| [docs/PORTAINER.md](docs/PORTAINER.md) | Deploy on Docker via Portainer |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+
+---
+
+## Project Layout
+
+```text
+smtp-relay/
+├── run.py                       # Entry point & bootstrap
+├── app.py                       # Flask web application
+├── smtp_server.py               # SMTP server & delivery engine
+├── models.py                    # Database models
+├── auth_oauth.py                # Microsoft Entra ID (OIDC) sign-in
+├── crypto_utils.py              # Fernet secret encryption (ENC1)
+├── requirements.txt             # Pinned Python dependencies
+├── Dockerfile                   # Container image (python:3.12-slim)
+├── docker-compose.yml           # Docker deployment (includes postgres)
+├── docker-compose.portainer.yml # Portainer variant (no build:)
+├── .env.example                 # Environment variable template
+├── tests/e2e_smoke.py           # End-to-end smoke suite
+├── docs/
+│   ├── ARCHITECTURE.md          # System design
+│   ├── CONFIGURATION.md         # Full config reference
+│   ├── INSTALLATION.md          # Setup guide
+│   ├── USER_ROLES.md            # RBAC guide
+│   ├── REVERSE_PROXY.md         # HTTPS / reverse proxy
+│   └── PORTAINER.md             # Portainer deployment
+├── static/css/style.css         # Stylesheet (self-hosted Inter font)
+└── templates/                   # Jinja2 templates
+```
 
 ---
 
 ## License
 
-MIT License — free for personal and commercial use.
+[MIT](LICENSE) — free for personal and commercial use.
