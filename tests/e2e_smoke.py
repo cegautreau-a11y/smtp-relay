@@ -38,7 +38,7 @@ SMTP_PORT, SINK_PORT = 18926, 18927
 
 def base_cfg(**web_extra):
     return {
-        "version": "4.4.4",
+        "version": "4.5.1",
         "web": {"host": "127.0.0.1", "port": 18925, "secret_key": SECRET,
                 "threads": 2, "secure_cookies": False, **web_extra},
         "smtp_listener": {"host": "127.0.0.1", "port": SMTP_PORT,
@@ -411,6 +411,71 @@ try:
 finally:
     _sk.sendall(b'QUIT\r\n')
     _sk.close()
+
+# ── queue_manager role: queue yes, everything else no ──────────
+with app.app_context():
+    _qm = User(username='qm', email='qm@relay.test', role=Role.QUEUE_MANAGER,
+               auth_source='local')
+    _qm.set_password('qmpass1234')
+    db.session.add(_qm)
+    db.session.commit()
+_cqm = app.test_client()
+_r = _cqm.post('/login', data={'username': 'qm', 'password': 'qmpass1234',
+                               'csrf_token': csrf_of(_cqm)})
+check('queue manager user can sign in', _r.status_code == 302, _r.status_code)
+_qm_csrf = csrf_of(_cqm, '/profile')   # fresh token post-login (/login now redirects)
+_r = _cqm.post('/queue/retry-all', data={'csrf_token': _qm_csrf})
+check('queue manager can manage the queue (retry-all allowed)',
+      _r.status_code == 302, _r.status_code)
+_r = _cqm.post('/domains/add', data={'domain': 'qm-must-not-exist.test',
+                                     'csrf_token': _qm_csrf})
+check('queue manager cannot add domains (403)', _r.status_code == 403, _r.status_code)
+with app.app_context():
+    check('queue manager domain really not created',
+          AllowedDomain.query.filter_by(domain='qm-must-not-exist.test').first() is None)
+check('queue manager cannot open Configuration',
+      _cqm.get('/config').status_code in (302, 403))
+_r = _cqm.post('/credentials/add', data={'username': 'qm-cred', 'password': 'notgonnahappen',
+                                         'csrf_token': _qm_csrf})
+check('queue manager cannot create SMTP credentials', _r.status_code == 403, _r.status_code)
+
+# ── sidebar + pages are permission-filtered (v4.5.1) ───────────
+_r = _cqm.get('/queue')
+_body = _r.get_data(as_text=True)
+check('queue page keeps Email Logs + Queue in the sidebar for queue manager',
+      'href="/logs"' in _body and 'href="/queue"' in _body, _r.status_code)
+check('sidebar hides Access Control below Operator',
+      'href="/domains"' not in _body and 'href="/credentials"' not in _body
+      and 'href="/dkim"' not in _body)
+check('queue manager cannot open domains/credentials/dkim pages',
+      _cqm.get('/domains').status_code == 403
+      and _cqm.get('/credentials').status_code == 403
+      and _cqm.get('/dkim').status_code == 403)
+check('queue manager keeps dashboard/logs/queue access',
+      _cqm.get('/').status_code == 200
+      and _cqm.get('/logs').status_code == 200
+      and _cqm.get('/queue').status_code == 200)
+with app.app_context():
+    _vw = User(username='vw', email='vw@relay.test', role=Role.VIEWER,
+               auth_source='local')
+    _vw.set_password('vwpass1234')
+    db.session.add(_vw)
+    db.session.commit()
+_cvw = app.test_client()
+_cvw.post('/login', data={'username': 'vw', 'password': 'vwpass1234',
+                          'csrf_token': csrf_of(_cvw)})
+_vw_body = _cvw.get('/queue').get_data(as_text=True)
+check('viewer sidebar hides Access Control + Administration',
+      'href="/domains"' not in _vw_body and 'href="/config"' not in _vw_body
+      and 'href="/logs"' in _vw_body)
+check('viewer cannot open domains/credentials/dkim pages',
+      _cvw.get('/domains').status_code == 403
+      and _cvw.get('/credentials').status_code == 403
+      and _cvw.get('/dkim').status_code == 403)
+check('viewer keeps dashboard/logs/queue access',
+      _cvw.get('/').status_code == 200
+      and _cvw.get('/logs').status_code == 200
+      and _cvw.get('/queue').status_code == 200)
 
 # ── cleanup ─────────────────────────────────────────────────────
 server.stop()

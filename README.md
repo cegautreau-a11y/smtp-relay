@@ -102,7 +102,7 @@ These are managed in the web interface:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 SMTP Mail Relay v4.4.4                   │
+│                 SMTP Mail Relay v4.5.1                   │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
 │  │  SMTP Server │───▶│  Email Queue │───▶│  Upstream │ │
 │  │  (aiosmtpd)  │    │(PostgreSQL)  │    │  Relay    │ │
@@ -228,9 +228,9 @@ smtp-relay\
 
 Replace the source files (or `docker compose up -d --build`) and restart — no configuration changes required. Highlights: direct delivery now fails over across the recipient domain's MX hosts, queue rows stranded in `processing` by a restart are requeued on boot, the dashboard daily chart works again on PostgreSQL, and several web-UI/security fixes — see the [CHANGELOG](CHANGELOG.md). If you plan to put the web UI behind a reverse proxy, see [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md).
 
-### From v4.4.0 to v4.4.4
+### From v4.4.x to v4.5.0
 
-Pull and rebuild/restart. v4.4.2 is **required for Microsoft sign-in** (v4.4.0's scope list tripped an MSAL validation error before Microsoft was ever contacted). v4.4.3 makes logging work as expected: the app log defaults to `/app/data/relay.log` (rotated 20 MB x 5) on the `smtp-data` volume, and the Configuration page's **Debug Logging** toggle now actually works (it previously did nothing — the `debug_logging` setting was never read back; when enabled it writes `data/smtp_debug.log`). Set `LOG_FILE=` (empty) to return to stdout-only. v4.4.4 fixes Outlook and other strict SASL clients hanging during AUTH LOGIN (the server now sends the canonical `Username:` / `Password:` challenges). See the [CHANGELOG](CHANGELOG.md).
+Pull and rebuild/restart. Adds the **Queue Manager** role (retry queue only — see [docs/USER_ROLES.md](docs/USER_ROLES.md)); Admins can assign it in User Management. v4.4.2 is **required for Microsoft sign-in** (v4.4.0's scope list tripped an MSAL validation error before Microsoft was ever contacted). v4.4.3 makes logging work as expected: the app log defaults to `/app/data/relay.log` (rotated 20 MB x 5) on the `smtp-data` volume, and the Configuration page's **Debug Logging** toggle now actually works (it previously did nothing — the `debug_logging` setting was never read back; when enabled it writes `data/smtp_debug.log`). Set `LOG_FILE=` (empty) to return to stdout-only. v4.4.4 fixes Outlook and other strict SASL clients hanging during AUTH LOGIN (the server now sends the canonical `Username:` / `Password:` challenges). Existing users keep their roles. See the [CHANGELOG](CHANGELOG.md).
 
 ### From v2.2.0 or later to v3.0.1
 

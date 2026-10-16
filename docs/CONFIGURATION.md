@@ -1,6 +1,6 @@
 # Configuration Reference
 
-**SMTP Mail Relay v4.4.4**
+**SMTP Mail Relay v4.5.1**
 
 All settings are stored in the **PostgreSQL database** (`relay_config` table) — the database is the only configuration store. On first boot (empty database) the environment variables seed the values; settings can then be changed at runtime through the web interface under **Configuration**.
 

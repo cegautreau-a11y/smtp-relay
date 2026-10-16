@@ -1,6 +1,6 @@
 """
 Flask web application for SMTP Relay management.
-Version 4.4.4
+Version 4.5.1
 
 Designed and built by Christopher McGrath
 
@@ -150,6 +150,16 @@ def operator_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.has_role(Role.OPERATOR):
+            abort(403)
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def queue_manager_required(f):
+    """Require Queue Manager, Operator, Admin, or Super Admin."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.has_role(Role.QUEUE_MANAGER):
             abort(403)
         return f(*args, **kwargs)
     return wrapper
@@ -720,6 +730,7 @@ def create_app(config_json: dict | None = None):
     # ── Domains ────────────────────────────────────────────────
     @app.route('/domains')
     @login_required
+    @operator_required
     def domains():
         """Display list of allowed sender domains."""
         return render_template('domains.html',
@@ -778,8 +789,9 @@ def create_app(config_json: dict | None = None):
     # ── DKIM Keys ───────────────────────────────────────────────
     @app.route('/dkim')
     @login_required
+    @operator_required
     def dkim_keys():
-        """Display DKIM keys management page (view for all roles; changes require operator)."""
+        """Display DKIM keys management page (Operator and above)."""
         keys = DkimKey.query.order_by(DkimKey.domain, DkimKey.created_at.desc()).all()
         return render_template('dkim.html', keys=keys)
 
@@ -896,6 +908,7 @@ def create_app(config_json: dict | None = None):
     # ── SMTP Credentials ──────────────────────────────────────
     @app.route('/credentials')
     @login_required
+    @operator_required
     def credentials():
         """Display list of SMTP client credentials."""
         return render_template('credentials.html',
@@ -1272,7 +1285,7 @@ def create_app(config_json: dict | None = None):
 
     @app.route('/queue/<int:qid>/retry', methods=['POST'])
     @login_required
-    @operator_required
+    @queue_manager_required
     def retry_queue(qid):
         """Manually retry a failed queue entry."""
         now = datetime.datetime.utcnow()
@@ -1303,7 +1316,7 @@ def create_app(config_json: dict | None = None):
 
     @app.route('/queue/<int:qid>/delete', methods=['POST'])
     @login_required
-    @operator_required
+    @queue_manager_required
     def delete_queue(qid):
         """Delete a queue entry."""
         db.session.delete(EmailQueue.query.get_or_404(qid))
@@ -1313,7 +1326,7 @@ def create_app(config_json: dict | None = None):
 
     @app.route('/queue/retry-all', methods=['POST'])
     @login_required
-    @operator_required
+    @queue_manager_required
     def retry_all_failed():
         """Retry all failed queue entries."""
         now = datetime.datetime.utcnow()
@@ -1347,7 +1360,7 @@ def create_app(config_json: dict | None = None):
 
     @app.route('/queue/flush', methods=['POST'])
     @login_required
-    @operator_required
+    @queue_manager_required
     def flush_queue():
         """Permanently delete all failed queue entries."""
         n = EmailQueue.query.filter(EmailQueue.status.in_(['failed'])).delete(synchronize_session=False)

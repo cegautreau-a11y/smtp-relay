@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**SMTP Mail Relay v4.4.4**
+**SMTP Mail Relay v4.5.1**
 
 This document describes the system design, component interactions, and technical decisions behind the SMTP Mail Relay.
 
@@ -10,7 +10,7 @@ This document describes the system design, component interactions, and technical
 
 ```
 ┌─────────────────────────────────────────────┐
-                     │            SMTP Mail Relay v4.4.4            │
+                     │            SMTP Mail Relay v4.5.1            │
                      │                                             │
    Applications      │  ┌──────────────┐    ┌──────────────────┐  │     Upstream
    & Devices         │  │  SMTP Server │    │  Queue Processor  │  │     SMTP Server
@@ -356,7 +356,7 @@ The automatic cleanup process (`cleanup_old()`) only purges **successfully sent*
 
 ## Known Limitations
 
-Documented trade-offs in the current design (v4.4.4) — not bugs, but good to know before operating the relay:
+Documented trade-offs in the current design (v4.5.1) — not bugs, but good to know before operating the relay:
 
 - **ENC1 envelopes use an unsalted SHA-256 key derivation.** Fernet itself is used correctly (random IV, encrypt-then-MAC), but a weak human-chosen `SECRET_KEY`/`web_secret_key` could be brute-forced offline from a database dump, decrypting every stored secret at once. Use a long random key (e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`). A salted/stretching `ENC2:` envelope format is the planned fix.
 - **The SMTP handler hooks run synchronously on the aiosmtpd event-loop thread.** A very large message parse or a slow database briefly delays responses on other concurrent SMTP connections (RFC 5321 command timeouts are minutes — this is a latency issue under load, not a correctness one).

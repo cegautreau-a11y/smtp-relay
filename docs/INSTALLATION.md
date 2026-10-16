@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide walks you through installing and running the SMTP Mail Relay v4.4.4 on a Windows Server.
+This guide walks you through installing and running the SMTP Mail Relay v4.5.1 on a Windows Server.
 
 ---
 
@@ -192,7 +192,7 @@ On first run, the application will:
 You will see a startup banner:
 ```
 ============================================================
-  SMTP Mail Relay  v4.4.4
+  SMTP Mail Relay  v4.5.1
   Designed and built by Christopher McGrath
 ============================================================
   Web Interface : http://0.0.0.0:8025
@@ -315,7 +315,7 @@ Open the web interface and verify:
 - SMTP status shows **Running** (green indicator in the header)
 - The test email appears in **Email Logs**
 - Statistics update on the **Dashboard**
-- Version badge in the sidebar footer shows **v4.4.4**
+- Version badge in the sidebar footer shows **v4.5.1**
 
 ---
 

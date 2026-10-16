@@ -3,7 +3,7 @@
 {% block page_title %}Email Queue{% endblock %}
 
 {% block header_actions %}
-{% if current_user.has_role('operator') and failed %}
+{% if current_user.has_role('queue_manager') and failed %}
 <div class="d-flex gap-1">
     <form method="POST" action="{{ url_for('retry_all_failed') }}" style="display:inline;"
           onsubmit="return confirm('Retry sending all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}?')">
@@ -43,7 +43,7 @@
                         <th>To</th>
                         <th>Retries</th>
                         <th>Last Error</th>
-                        {% if current_user.has_role('operator') %}<th>Actions</th>{% endif %}
+                        {% if current_user.has_role('queue_manager') %}<th>Actions</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -64,7 +64,7 @@
                         </td>
                         <td class="text-sm">{{ entry.retry_count }}</td>
                         <td class="text-sm text-muted truncate">{{ entry.last_error or '-' }}</td>
-                        {% if current_user.has_role('operator') %}
+                        {% if current_user.has_role('queue_manager') %}
                         <td>
                             <div class="d-flex gap-1">
                                 <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
@@ -152,7 +152,7 @@
                         <th>To</th>
                         <th>Retries</th>
                         <th>Error</th>
-                        {% if current_user.has_role('operator') %}<th>Actions</th>{% endif %}
+                        {% if current_user.has_role('queue_manager') %}<th>Actions</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -169,7 +169,7 @@
                         </td>
                         <td class="text-sm">{{ entry.retry_count }}</td>
                         <td class="text-sm text-danger truncate" style="max-width:300px;">{{ entry.last_error or '-' }}</td>
-                        {% if current_user.has_role('operator') %}
+                        {% if current_user.has_role('queue_manager') %}
                         <td>
                             <div class="d-flex gap-1">
                                 <form method="POST" action="{{ url_for('retry_queue', qid=entry.id) }}">

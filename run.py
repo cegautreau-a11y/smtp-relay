@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SMTP Mail Relay – Launcher
-Version 4.4.4
+Version 4.5.1
 ===================================
 Designed and built by Christopher McGrath
 
@@ -63,7 +63,7 @@ def _env_to_config() -> dict:
     Docker volume) to re-apply environment variables.
     """
     cfg = {
-        "version": "4.4.4",
+        "version": "4.5.1",
         "web": {
             "host": os.environ.get("WEB_HOST", "0.0.0.0"),
             "port": _env_int("WEB_PORT", "8025"),
@@ -628,7 +628,7 @@ def main():
 
     print()
     print('=' * 60)
-    print('  SMTP Mail Relay  v4.4.4')
+    print('  SMTP Mail Relay  v4.5.1')
     print('  Designed and built by Christopher McGrath')
     print('=' * 60)
     print(f'  Web Interface : http://{web_host}:{web_port}')

@@ -4,6 +4,24 @@ All notable changes to the SMTP Mail Relay project will be documented in this fi
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 4.5.0 — Queue Manager Role (2026-10-15)
+
+### Added
+- **New "Queue Manager" role** between Viewer and Operator. Queue Managers get full control of the retry queue — retry individual entries, Retry All Failed, delete entries, Delete All Failed — and nothing else: no domains, no SMTP credentials, no DKIM keys, no configuration, no user management. Built for helpdesk/operations staff whose only job is un-sticking stuck mail. Admins (and Super Admins) can assign the role from User Management; a green `badge-queue-manager` shows in the sidebar and user lists. Weight order is now viewer 0 < queue_manager 1 < operator 2 < admin 3 < super_admin 4 (roles are stored by name, so existing accounts are unaffected). E2E suite verifies the role can run queue actions and is rejected on domains/credentials/configuration (models.py, app.py `queue_manager_required`, templates/queue.html, tests/e2e_smoke.py — 49 checks).
+
+### Upgrade (v4.4.x → v4.5.0)
+Pull and rebuild/restart. No configuration changes; existing users keep their roles.
+
+---
+
+## 4.5.1 — Permission-Filtered Sidebar (2026-10-15)
+
+### Changed
+- **The sidebar now shows only what the user's role can actually use.** Every signed-in user sees **Dashboard, Email Logs, and Queue**. The **Allowed Domains / SMTP Credentials / DKIM Keys** section appears for Operator and above, and those three pages are now blocked below Operator server-side (previously every signed-in role could open them read-only) — so a hidden menu item is genuinely inaccessible. **Configuration / Users** remain Admin and above (templates/base.html, app.py).
+
+### Upgrade (v4.5.0 → v4.5.1)
+Pull and rebuild/restart. No configuration changes. Note: Viewer and Queue Manager accounts lose read-only access to the domains/credentials/DKIM pages — intended, per the menu-permissions model.
+
 ---
 
 ## 4.4.4 — Fix Outlook Hanging During AUTH LOGIN (2026-10-15)

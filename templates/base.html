@@ -46,6 +46,7 @@
                     </a>
                 </div>
 
+                {% if current_user.has_role('operator') %}
                 <div class="nav-section">
                     <div class="nav-section-title">Access Control</div>
                     <a href="{{ url_for('domains') }}" class="nav-link {% if request.endpoint == 'domains' %}active{% endif %}">
@@ -58,6 +59,7 @@
                         <span class="nav-icon"><i class="fas fa-signature"></i></span> DKIM Keys
                     </a>
                 </div>
+                {% endif %}
 
                 {% if current_user.is_authenticated and current_user.has_role('admin') %}
                 <div class="nav-section">
@@ -98,7 +100,7 @@
                 <div class="sidebar-version">
                     <span class="version-badge">
                         <i class="fas fa-circle"></i>
-                        v4.4.4
+                        v4.5.1
                     </span>
                 </div>
                 

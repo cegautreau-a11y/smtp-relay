@@ -1,6 +1,6 @@
 """
 Microsoft Entra ID (Azure AD) OIDC sign-in for the SMTP relay web UI.
-Version 4.4.4
+Version 4.5.1
 
 Designed and built by Christopher McGrath
 

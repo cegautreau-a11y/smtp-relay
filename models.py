@@ -1,6 +1,6 @@
 """
 Database models for the SMTP Mail Relay.
-Version 4.4.4
+Version 4.5.1
 
 Designed and built by Christopher McGrath
 """
@@ -39,19 +39,22 @@ def normalize_database_url(url: str) -> str:
 class Role:
     """User role hierarchy.  Higher number = more privileges."""
     VIEWER = 'viewer'
+    QUEUE_MANAGER = 'queue_manager'
     OPERATOR = 'operator'
     ADMIN = 'admin'
     SUPER_ADMIN = 'super_admin'
 
-    ALL = [VIEWER, OPERATOR, ADMIN, SUPER_ADMIN]
+    ALL = [VIEWER, QUEUE_MANAGER, OPERATOR, ADMIN, SUPER_ADMIN]
     LABELS = {
         VIEWER: 'Viewer',
+        QUEUE_MANAGER: 'Queue Manager',
         OPERATOR: 'Operator',
         ADMIN: 'Admin',
         SUPER_ADMIN: 'Super Admin',
     }
     BADGE_CLASSES = {
         VIEWER: 'badge-viewer',
+        QUEUE_MANAGER: 'badge-queue-manager',
         OPERATOR: 'badge-operator',
         ADMIN: 'badge-admin',
         SUPER_ADMIN: 'badge-super-admin',
@@ -59,9 +62,10 @@ class Role:
     # Numeric weight for comparison (higher = more powerful)
     WEIGHT = {
         VIEWER: 0,
-        OPERATOR: 1,
-        ADMIN: 2,
-        SUPER_ADMIN: 3,
+        QUEUE_MANAGER: 1,
+        OPERATOR: 2,
+        ADMIN: 3,
+        SUPER_ADMIN: 4,
     }
 
     @classmethod
@@ -91,7 +95,7 @@ class Role:
         if actor_role == cls.SUPER_ADMIN:
             return cls.ALL[:]
         if actor_role == cls.ADMIN:
-            return [cls.VIEWER, cls.OPERATOR]
+            return [cls.VIEWER, cls.QUEUE_MANAGER, cls.OPERATOR]
         return []
 
 

@@ -1307,6 +1307,7 @@ select.form-control {
 
 /* Legacy badge classes */
 .badge-viewer { background: rgba(100, 116, 139, 0.15); color: #64748b; }
+.badge-queue-manager { background: rgba(16, 185, 129, 0.15); color: #059669; }
 .badge-operator { background: rgba(37, 99, 235, 0.15); color: #2563eb; }
 .badge-admin { background: rgba(245, 158, 11, 0.15); color: #d97706; }
 .badge-super-admin { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
