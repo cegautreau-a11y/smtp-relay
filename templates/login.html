@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - SMTP Relay v4.4.4</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous">
+    <script>
+        // Apply saved theme before first paint to avoid a light-mode flash.
+        if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="icon"><i class="fas fa-paper-plane"></i></div>
+            </div>
+            <h1>SMTP Mail Relay</h1>
+            <p class="subtitle">Sign in to manage your mail relay server</p>
+            <span class="version-badge">v4.4.4</span>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }}" style="margin-top:1.5rem;">
+                    <i class="fas {% if category == 'danger' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            {% if azure_enabled %}
+            <a href="{{ url_for('auth_oauth.start') }}" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.7rem;margin-top:1.5rem;">
+                <svg width="18" height="18" viewBox="0 0 21 21" style="margin-right:0.5rem;" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+                Sign in with Microsoft
+            </a>
+            <div style="display:flex;align-items:center;gap:0.75rem;margin:1.25rem 0 0;">
+                <span style="flex:1;height:1px;background:var(--border-color,#e2e8f0);"></span>
+                <span style="font-size:0.7rem;color:var(--text-secondary);">or</span>
+                <span style="flex:1;height:1px;background:var(--border-color,#e2e8f0);"></span>
+            </div>
+            {% endif %}
+
+            <details style="margin-top:1.25rem;">
+                <summary style="cursor:pointer;font-size:0.8rem;color:var(--text-secondary);text-align:center;">
+                    Local administrator sign-in
+                </summary>
+                <form method="POST" action="{{ url_for('login') }}" style="margin-top:1rem;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.args.get('next','') }}">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" class="form-control"
+                               placeholder="Enter your username" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" class="form-control"
+                               placeholder="Enter your password" required>
+                    </div>
+
+                    <button type="submit" class="btn btn-outline" style="width:100%;justify-content:center;padding:0.7rem;margin-top:0.5rem;">
+                        <i class="fas fa-sign-in-alt"></i> Sign In
+                    </button>
+                </form>
+            </details>
+            {% if not azure_enabled %}
+            <p style="text-align:center;margin-top:1.25rem;font-size:0.75rem;color:var(--text-secondary);">
+                Microsoft sign-in is not enabled — configure it under Administration &rarr; Configuration.
+            </p>
+            {% endif %}
+
+            <p style="text-align:center;margin-top:1.5rem;font-size:0.75rem;color:var(--text-secondary);">
+                Contact your administrator for access.
+            </p>
+            <p style="text-align:center;margin-top:0.75rem;font-size:0.625rem;color:rgba(100,116,139,.6);">
+                Designed & Built by Christopher McGrath
+            </p>
+        </div>
+    </div>
+</body>
+</html>

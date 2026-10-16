@@ -1,0 +1,142 @@
+# ─────────────────────────────────────────────────────────────────────
+# Development / docker-compose stack file (builds the image locally).
+#
+# PostgreSQL is the only supported database (v4.3.0+): the stack ships a
+# postgres:16-alpine service and wires DATABASE_URL to it. Point the app
+# at an EXTERNAL server instead by overriding DATABASE_URL (and removing
+# the postgres service + pg-data volume).
+# ─────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smtp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: smtp_relay
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smtp -d smtp_relay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # MUST be on the same network as smtp-relay: DATABASE_URL points at
+    # the host name "postgres", which only resolves inside smtp-network.
+    networks:
+      - smtp-network
+
+  smtp-relay:
+    image: smtp-relay:latest
+    build: .
+    # No container_name: Portainer prefixes stack resources; a fixed name
+    # clashes on stack rename/redeploy.
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # gunicorn's graceful stop (SIGTERM → drain workers, stop the SMTP
+    # listener, flush the queue processor) needs longer than Docker's 10 s
+    # default; past it docker stop escalates to SIGKILL mid-delivery.
+    stop_grace_period: 30s
+    # ─────────────────────────────────────────────────────────────
+    # Environment variables are applied on FIRST BOOT only (while the
+    # database has no relay_config rows yet). They seed the database;
+    # after that the database owns the configuration and changes to
+    # these variables are IGNORED. Empty the database volume
+    # ("docker compose down -v") to re-apply env vars.
+    #
+    # Portainer — two supported paths (see docs/PORTAINER.md):
+    #   Method A (recommended): build the image yourself on the Docker host
+    #   (`docker build -t smtp-relay:latest .`) and deploy the stack from
+    #   the web editor using docker-compose.portainer.yml (this file minus
+    #   the build line).
+    #   Method B: deploy this file directly as a Repository stack — Portainer
+    #   clones the repo and builds (needs git access to the private repo).
+    # SECRET_KEY and POSTGRES_PASSWORD must be provided in the stack's
+    # environment variables.
+    # ─────────────────────────────────────────────────────────────
+    ports:
+      # Host-side ports are overridable (WEB_PORT_HOST / SMTP_PORT_HOST)
+      # to avoid conflicts with services already on the Portainer host.
+      # Behind a reverse proxy, bind the web port to loopback so plain
+      # HTTP never bypasses the proxy's TLS:
+      #   - "127.0.0.1:${WEB_PORT_HOST:-8025}:8025"
+      # Only the WEB port is proxyable (HTTP); the SMTP port is a raw
+      # TCP protocol port — publish/firewall it directly, never via an
+      # HTTP proxy.
+      - "${WEB_PORT_HOST:-8025}:8025"
+      - "${SMTP_PORT_HOST:-2525}:2525"
+    volumes:
+      # Holds the rotated application log (relay.log, default ON) and the
+      # optional debug log (smtp_debug.log, Configuration → Debug Logging).
+      # Database state lives in pg-data.
+      - smtp-data:/app/data
+    healthcheck:
+      # Shows Running/Healthy in Portainer. python is present in the image
+      # (curl is not in the slim base image).
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('WEB_PORT', '8025') + '/login', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    environment:
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required}
+      - WEB_HOST=${WEB_HOST:-0.0.0.0}
+      # In-container ports are FIXED to match the port mappings above: the
+      # port mappings forward host traffic to container port 8025/2525, so
+      # changing the in-container bind here (or in .env) would make the
+      # service unreachable while the healthcheck still probed the new
+      # port and reported "healthy". Remap the HOST side with
+      # WEB_PORT_HOST / SMTP_PORT_HOST instead.
+      - WEB_PORT=8025
+      # web request threads (feeds the gunicorn thread count; ignored by the Windows dev-server fallback)
+      - WEB_THREADS=${WEB_THREADS:-4}
+      # Reverse proxy in front? Set both together (see docs/REVERSE_PROXY.md):
+      # WEB_SECURE_COOKIES=true (HTTPS) + WEB_TRUST_PROXY=true (real client
+      # IPs + https scheme from X-Forwarded-For/-Proto).
+      - WEB_SECURE_COOKIES=${WEB_SECURE_COOKIES:-false}
+      - WEB_TRUST_PROXY=${WEB_TRUST_PROXY:-false}
+      - SMTP_LISTEN_HOST=${SMTP_LISTEN_HOST:-0.0.0.0}
+      - SMTP_LISTEN_PORT=2525
+      - BANNER_HOSTNAME=${BANNER_HOSTNAME:-relay.local}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - ENABLE_TLS=${ENABLE_TLS:-false}
+      - TLS_CERT_PATH=${TLS_CERT_PATH:-}
+      - TLS_KEY_PATH=${TLS_KEY_PATH:-}
+      - DELIVERY_MODE=${DELIVERY_MODE:-relay}
+      - RELAY_HOST=${RELAY_HOST:-smtp.example.com}
+      - RELAY_PORT=${RELAY_PORT:-25}
+      - RELAY_USE_TLS=${RELAY_USE_TLS:-false}
+      - RELAY_USE_STARTTLS=${RELAY_USE_STARTTLS:-true}
+      - RELAY_AUTH_USER=${RELAY_AUTH_USER:-}
+      - RELAY_AUTH_PASSWORD=${RELAY_AUTH_PASSWORD:-}
+      - RELAY_HELO_HOSTNAME=${RELAY_HELO_HOSTNAME:-localhost}
+      - DIRECT_USE_STARTTLS=${DIRECT_USE_STARTTLS:-false}
+      - DIRECT_AUTH_USER=${DIRECT_AUTH_USER:-}
+      - DIRECT_AUTH_PASSWORD=${DIRECT_AUTH_PASSWORD:-}
+      - MAX_MESSAGE_SIZE=${MAX_MESSAGE_SIZE:-26214400}
+      - MAX_RECIPIENTS=${MAX_RECIPIENTS:-100}
+      - GLOBAL_RATE_LIMIT=${GLOBAL_RATE_LIMIT:-1000}
+      - ALLOWED_SOURCE_IPS=${ALLOWED_SOURCE_IPS:-}
+      - QUEUE_RETRY_INTERVAL=${QUEUE_RETRY_INTERVAL:-300}
+      - QUEUE_MAX_RETRIES=${QUEUE_MAX_RETRIES:-3}
+      # App log file — rotated (20 MB x 5) and ON by default so logs live
+      # on the smtp-data volume and survive recreation. Set LOG_FILE= to
+      # log to stdout only instead. (Read from the env on EVERY boot.)
+      - LOG_FILE=${LOG_FILE:-/app/data/relay.log}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+      - DEBUG_LOGGING=${DEBUG_LOGGING:-false}
+      # PostgreSQL is required (v4.3.0+). Default points at the in-stack
+      # postgres service; override to target an external server.
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://smtp:${POSTGRES_PASSWORD}@postgres:5432/smtp_relay}
+    networks:
+      - smtp-network
+
+volumes:
+  smtp-data:
+  pg-data:
+
+networks:
+  smtp-network:
+    driver: bridge

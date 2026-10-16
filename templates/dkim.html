@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}DKIM Keys - SMTP Relay{% endblock %}
+{% block page_title %}DKIM Keys{% endblock %}
+
+{% block header_actions %}
+{% if current_user.has_role('operator') %}
+<button class="btn btn-primary btn-sm" onclick="openModal('generateKeyModal')">
+    <i class="fas fa-key"></i> Generate Key
+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <h2><i class="fas fa-key"></i>&nbsp; DKIM Signing Keys</h2>
+    </div>
+    <div class="card-body" style="padding:0;">
+        {% if not keys %}
+        <div class="empty-state">
+            <p>No DKIM keys yet. Generate one above to enable DKIM signing for outgoing emails.</p>
+        </div>
+        {% else %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Selector</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        {% if current_user.has_role('operator') %}<th>Actions</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for key in keys %}
+                    <tr>
+                        <td><strong class="text-mono">{{ key.domain }}</strong></td>
+                        <td><code>{{ key.selector }}</code></td>
+                        <td>
+                            {% if key.is_active %}
+                            <span class="badge badge-active">Active</span>
+                            {% else %}
+                            <span class="badge badge-inactive">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-sm text-muted">{{ key.created_at.strftime('%b %d, %Y') if key.created_at else '-' }}</td>
+                        {% if current_user.has_role('operator') %}
+                        <td>
+                            <div class="d-flex gap-1">
+                                {% if not key.is_active %}
+                                <form method="POST" action="{{ url_for('activate_dkim_key', kid=key.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline btn-xs text-success">Activate</button>
+                                </form>
+                                {% else %}
+                                <form method="POST" action="{{ url_for('deactivate_dkim_key', kid=key.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline btn-xs text-warning">Deactivate</button>
+                                </form>
+                                {% endif %}
+                                <form method="POST" action="{{ url_for('delete_dkim_key', kid=key.id) }}" onsubmit="return confirm('Delete this DKIM key?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline btn-xs text-danger">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% if key.is_active %}
+                    <tr style="background: var(--surface-subtle);">
+                        <td colspan="{% if current_user.has_role('operator') %}5{% else %}4{% endif %}" style="padding: 1rem;">
+                            <div style="margin-bottom: 0.5rem; font-weight: 600;">
+                                <i class="fas fa-globe"></i> DNS TXT Record — add to your DNS provider:
+                            </div>
+                            <div style="font-family: monospace; font-size: 0.8rem; background: #212529; color: #fff; padding: 0.75rem; border-radius: 4px; overflow-x: auto;">
+                                <div style="margin-bottom: 0.25rem;"><strong>Name:</strong> {{ key.selector }}._domainkey.{{ key.domain }}</div>
+                                <div style="margin-bottom: 0.25rem;"><strong>Type:</strong> TXT</div>
+                                <div style="word-wrap: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Value:</strong> <span style="word-break: break-all;">v=DKIM1; k=rsa; p={{ key.public_key }}</span></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if current_user.has_role('operator') %}
+<div class="modal-overlay" id="generateKeyModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="generateKeyModalLabel">
+        <div class="modal-header">
+            <h3 id="generateKeyModalLabel">Generate New DKIM Key</h3>
+            <button type="button" class="modal-close" aria-label="Close" onclick="document.getElementById('generateKeyModal').classList.remove('active')">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('generate_dkim_key') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="domain">Domain</label>
+                    <input type="text" class="form-control" id="domain" name="domain" placeholder="example.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="selector">Selector</label>
+                    <input type="text" class="form-control" id="selector" name="selector" placeholder="mail" required>
+                    <small class="text-muted">Creates DNS record: <code>&lt;selector&gt;._domainkey.&lt;domain&gt;</code></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('generateKeyModal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Generate Key Pair</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

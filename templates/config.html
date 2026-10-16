@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+{% block title %}Configuration - SMTP Relay{% endblock %}
+{% block page_title %}Server Configuration{% endblock %}
+
+{% block content %}
+<form method="POST" action="{{ url_for('config') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Delivery Mode -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <h2><i class="fas fa-truck"></i>&nbsp; Delivery Mode</h2>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="delivery_mode" class="form-label">Mode</label>
+                <select class="form-select" id="delivery_mode" name="delivery_mode">
+                    <option value="relay" {{ 'selected' if configs.get('delivery_mode') == 'relay' else '' }}>Relay (forward to upstream SMTP)</option>
+                    <option value="direct" {{ 'selected' if configs.get('delivery_mode') == 'direct' else '' }}>Direct (MX lookup, deliver straight to destination)</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Destination Relay -->
+    <div class="card" id="relay-settings">
+        <div class="card-header">
+            <h2><i class="fas fa-server"></i>&nbsp; Destination Relay Server</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">Configure the upstream mail server where emails will be forwarded.</p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="relay_host">Relay Host</label>
+                    <input type="text" id="relay_host" name="relay_host" class="form-control"
+                           value="{{ configs.relay_host }}" placeholder="smtp.example.com">
+                    <div class="form-hint">Hostname or IP of the destination SMTP server</div>
+                </div>
+                <div class="form-group">
+                    <label for="relay_port">Relay Port</label>
+                    <input type="number" id="relay_port" name="relay_port" class="form-control"
+                           value="{{ configs.relay_port }}" placeholder="25">
+                    <div class="form-hint">Common ports: 25 (SMTP), 465 (SMTPS), 587 (Submission)</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="relay_helo_hostname">Sending Server Name (HELO/EHLO Hostname)</label>
+                <input type="text" id="relay_helo_hostname" name="relay_helo_hostname" class="form-control"
+                       value="{{ configs.relay_helo_hostname }}" placeholder="myserver.example.com"
+                       style="max-width:400px;">
+                <div class="form-hint">
+                    The hostname this relay identifies itself as when connecting to the destination server.
+                    Should match a valid DNS record for best deliverability (e.g. your server's public FQDN).
+                </div>
+            </div>
+
+            <!-- Destination TLS -->
+            <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+                <label style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:block;">
+                    <i class="fas fa-lock"></i>&nbsp; Destination Encryption (optional)
+                </label>
+                <p class="text-sm text-muted mb-1">
+                    Enable encryption when connecting to the upstream server.
+                    Leave both unchecked for a plain-text connection.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input type="checkbox" id="relay_use_tls" name="relay_use_tls"
+                                   {{ 'checked' if configs.relay_use_tls == 'true' }}>
+                            <label for="relay_use_tls">Use SSL/TLS (implicit – typically port 465)</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input type="checkbox" id="relay_use_starttls" name="relay_use_starttls"
+                                   {{ 'checked' if configs.relay_use_starttls == 'true' }}>
+                            <label for="relay_use_starttls">Use STARTTLS (upgrade – typically port 587)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Destination Auth -->
+            <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+                <label style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:block;">
+                    <i class="fas fa-user-lock"></i>&nbsp; Destination Authentication (optional)
+                </label>
+                <p class="text-sm text-muted mb-1">
+                    If the upstream server requires a login, enter the credentials below.
+                    Leave both fields empty to connect without authentication.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="relay_auth_user">Username</label>
+                        <input type="text" id="relay_auth_user" name="relay_auth_user" class="form-control"
+                               value="{{ configs.relay_auth_user }}" placeholder="Empty = no auth">
+                    </div>
+                    <div class="form-group">
+                        <label for="relay_auth_password">Password</label>
+                        <input type="password" id="relay_auth_password" name="relay_auth_password" class="form-control"
+                               placeholder="Leave blank to keep current" autocomplete="new-password">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Direct Delivery Settings -->
+    <div class="card mb-3" id="direct-settings" style="display: none;">
+        <div class="card-header">
+            <h2><i class="fas fa-paper-plane"></i>&nbsp; Direct Delivery Settings</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">Used when Delivery Mode is set to "Direct". Email is delivered straight to destination MX servers via MX lookup.</p>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="direct_use_starttls" name="direct_use_starttls"
+                           {{ 'checked' if configs.get('direct_use_starttls') == 'true' }}>
+                    <label for="direct_use_starttls">Use STARTTLS (upgrade to TLS after connecting)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="direct_auth_user">AUTH User</label>
+                <input type="text" class="form-control" id="direct_auth_user" name="direct_auth_user" value="{{ configs.get('direct_auth_user', '') }}">
+            </div>
+            <div class="form-group">
+                <label for="direct_auth_password">AUTH Password</label>
+                <input type="password" class="form-control" id="direct_auth_password" name="direct_auth_password"
+                       placeholder="Leave blank to keep current" autocomplete="new-password">
+            </div>
+        </div>
+    </div>
+
+    <!-- Listener Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-headphones"></i>&nbsp; Listener Settings</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">Configure how this relay server accepts incoming SMTP connections from your applications.</p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="listen_host">Listen Host</label>
+                    <input type="text" id="listen_host" name="listen_host" class="form-control"
+                           value="{{ configs.listen_host }}" placeholder="0.0.0.0">
+                    <div class="form-hint">0.0.0.0 = all interfaces, 127.0.0.1 = localhost only</div>
+                </div>
+                <div class="form-group">
+                    <label for="listen_port">Listen Port</label>
+                    <input type="number" id="listen_port" name="listen_port" class="form-control"
+                           value="{{ configs.listen_port }}" placeholder="2525">
+                    <div class="form-hint">Port this relay listens on for incoming SMTP connections</div>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="banner_hostname">SMTP Banner Hostname</label>
+                    <input type="text" id="banner_hostname" name="banner_hostname" class="form-control"
+                           value="{{ configs.banner_hostname }}" placeholder="relay.local">
+                    <div class="form-hint">Hostname shown in the SMTP 220 banner to connecting clients</div>
+                </div>
+                <div class="form-group">
+                    <div class="form-check" style="margin-top:1.5rem;">
+                        <input type="checkbox" id="require_auth" name="require_auth"
+                               {{ 'checked' if configs.require_auth == 'true' }}>
+                        <label for="require_auth">Require SMTP Authentication from clients</label>
+                    </div>
+                    <div class="form-hint">When enabled, clients must authenticate before sending</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Listener TLS -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-shield-alt"></i>&nbsp; Listener TLS / Encryption (optional – off by default)</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">
+                Enable TLS/STARTTLS on the listener so clients connecting from your computer to this
+                server use an encrypted connection.  This is <strong>off by default</strong> and requires
+                a certificate and private key file.
+            </p>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="enable_tls" name="enable_tls"
+                           {{ 'checked' if configs.enable_tls == 'true' }}>
+                    <label for="enable_tls">Enable TLS/STARTTLS on the listener</label>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tls_cert_path">TLS Certificate Path</label>
+                    <input type="text" id="tls_cert_path" name="tls_cert_path" class="form-control"
+                           value="{{ configs.tls_cert_path }}" placeholder="C:\certs\cert.pem">
+                    <div class="form-hint">Full path to the PEM certificate file</div>
+                </div>
+                <div class="form-group">
+                    <label for="tls_key_path">TLS Private Key Path</label>
+                    <input type="text" id="tls_key_path" name="tls_key_path" class="form-control"
+                           value="{{ configs.tls_key_path }}" placeholder="C:\certs\key.pem">
+                    <div class="form-hint">Full path to the PEM private key file</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Limiting & Limits -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-tachometer-alt"></i>&nbsp; Limits & Rate Limiting</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="max_message_size">Max Message Size (bytes)</label>
+                    <input type="number" id="max_message_size" name="max_message_size" class="form-control"
+                           value="{{ configs.max_message_size }}">
+                    <div class="form-hint">Default: 26214400 (25 MB)</div>
+                </div>
+                <div class="form-group">
+                    <label for="max_recipients">Max Recipients per Message</label>
+                    <input type="number" id="max_recipients" name="max_recipients" class="form-control"
+                           value="{{ configs.max_recipients }}">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="global_rate_limit">Global Rate Limit (emails/hour)</label>
+                    <input type="number" id="global_rate_limit" name="global_rate_limit" class="form-control"
+                           value="{{ configs.global_rate_limit }}">
+                </div>
+                <div class="form-group">
+                    <label for="allowed_source_ips">Allowed Source IPs (CIDR notation)</label>
+                    <input type="text" id="allowed_source_ips" name="allowed_source_ips" class="form-control"
+                           value="{{ configs.allowed_source_ips }}" placeholder="Leave empty to allow all">
+                    <div class="form-hint">Comma-separated list of IPs or CIDR ranges (e.g., 10.55.61.0/24, 192.168.1.0/24)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Queue Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-redo"></i>&nbsp; Queue & Retry Settings</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="queue_retry_interval">Retry Interval (seconds)</label>
+                    <input type="number" id="queue_retry_interval" name="queue_retry_interval" class="form-control"
+                           value="{{ configs.queue_retry_interval }}">
+                    <div class="form-hint">Base interval between retries (multiplied by attempt number)</div>
+                </div>
+                <div class="form-group">
+                    <label for="queue_max_retries">Max Retries</label>
+                    <input type="number" id="queue_max_retries" name="queue_max_retries" class="form-control"
+                           value="{{ configs.queue_max_retries }}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="log_retention_days">Log Retention (days)</label>
+                <input type="number" id="log_retention_days" name="log_retention_days" class="form-control"
+                       value="{{ configs.log_retention_days }}" style="max-width:200px;">
+            </div>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="debug_logging" name="debug_logging"
+                           {{ 'checked' if configs.debug_logging == 'true' }}>
+                    <label for="debug_logging">Enable Debug Logging</label>
+                </div>
+                <div class="form-hint">Writes detailed SMTP transaction logs to the debug log file</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Web Interface -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-desktop"></i>&nbsp; Web Interface</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">
+                Bind address, port, and worker threads for the management UI.
+                Changes take effect after an application restart.
+            </p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="web_host">Bind Address</label>
+                    <input type="text" id="web_host" name="web_host" class="form-control"
+                           value="{{ configs.web_host }}" placeholder="0.0.0.0">
+                    <div class="form-hint">0.0.0.0 = all interfaces</div>
+                </div>
+                <div class="form-group">
+                    <label for="web_port">Port</label>
+                    <input type="number" id="web_port" name="web_port" class="form-control"
+                           value="{{ configs.web_port }}">
+                </div>
+                <div class="form-group">
+                    <label for="web_threads">Worker Threads</label>
+                    <input type="number" id="web_threads" name="web_threads" class="form-control"
+                           value="{{ configs.web_threads }}">
+                </div>
+            </div>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="web_secure_cookies" name="web_secure_cookies"
+                           {{ 'checked' if configs.web_secure_cookies == 'true' }}>
+                    <label for="web_secure_cookies">Secure cookies (enable when served over HTTPS)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="web_trust_proxy" name="web_trust_proxy"
+                           {{ 'checked' if configs.web_trust_proxy == 'true' }}>
+                    <label for="web_trust_proxy">Trust reverse-proxy headers (X-Forwarded-For / X-Forwarded-Proto)</label>
+                </div>
+                <div class="form-hint">Enable ONLY when the UI sits behind your reverse proxy: the login throttle keys on the proxy-reported client IP and generated URLs follow the proxy's scheme. Restart required.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Microsoft Sign-in -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-building"></i>&nbsp; Microsoft 365 Sign-in</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-2">
+                Microsoft Entra ID sign-in for the web UI (identity-only OIDC).
+                Register an app in the Azure portal with redirect URI
+                <code>/login/azure/callback</code> (or the value below), create a
+                client secret, and paste the values here. Local break-glass admin
+                sign-in keeps working regardless of this setting.
+            </p>
+            <div class="form-group">
+                <div class="form-check">
+                    <input type="checkbox" id="azure_enabled" name="azure_enabled"
+                           {{ 'checked' if configs.azure_enabled == 'true' }}>
+                    <label for="azure_enabled">Enable Microsoft sign-in</label>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="azure_tenant_id">Tenant ID</label>
+                    <input type="text" id="azure_tenant_id" name="azure_tenant_id" class="form-control"
+                           value="{{ configs.azure_tenant_id }}" placeholder="00000000-0000-0000-0000-000000000000">
+                    <div class="form-hint">Directory (tenant) ID from the Azure app overview</div>
+                </div>
+                <div class="form-group">
+                    <label for="azure_client_id">Client (Application) ID</label>
+                    <input type="text" id="azure_client_id" name="azure_client_id" class="form-control"
+                           value="{{ configs.azure_client_id }}" placeholder="00000000-0000-0000-0000-000000000000">
+                    <div class="form-hint">Application (client) ID from the Azure app overview</div>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="azure_client_secret">Client Secret</label>
+                    <input type="password" id="azure_client_secret" name="azure_client_secret" class="form-control"
+                           value="" placeholder="{{ 'Stored — leave blank to keep' if configs.azure_client_secret else '' }}">
+                    <div class="form-hint">Write-only: a new value is stored encrypted (like relay passwords); blank keeps the current one</div>
+                </div>
+                <div class="form-group">
+                    <label for="azure_redirect_uri">Redirect URI (optional)</label>
+                    <input type="text" id="azure_redirect_uri" name="azure_redirect_uri" class="form-control"
+                           value="{{ configs.azure_redirect_uri }}" placeholder="https://relay.example.com/login/azure/callback">
+                    <div class="form-hint">Set this when accessing the UI through a proxy or multiple hostnames; must match the Azure app registration exactly</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save -->
+    <div class="d-flex justify-between align-center" style="flex-wrap:wrap;gap:0.75rem;">
+        <p class="text-sm text-muted" style="margin:0;">
+            <i class="fas fa-info-circle"></i>
+            Listener changes require an SMTP server restart.
+            Relay/sending changes take effect on the next message.
+        </p>
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Save Configuration
+        </button>
+    </div>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const modeSelect = document.getElementById('delivery_mode');
+    const relaySettings = document.getElementById('relay-settings');
+    const directSettings = document.getElementById('direct-settings');
+
+    function updateVisibility() {
+        const mode = modeSelect.value;
+        if (relaySettings) relaySettings.style.display = mode === 'relay' ? '' : 'none';
+        if (directSettings) directSettings.style.display = mode === 'direct' ? '' : 'none';
+    }
+
+    if (modeSelect) {
+        modeSelect.addEventListener('change', updateVisibility);
+        updateVisibility();
+    }
+});
+</script>
+{% endblock %}

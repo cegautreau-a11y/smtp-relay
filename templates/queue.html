@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Queue - SMTP Relay{% endblock %}
+{% block page_title %}Email Queue{% endblock %}
+
+{% block header_actions %}
+{% if current_user.has_role('operator') and failed %}
+<div class="d-flex gap-1">
+    <form method="POST" action="{{ url_for('retry_all_failed') }}" style="display:inline;"
+          onsubmit="return confirm('Retry sending all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-primary btn-sm">
+            <i class="fas fa-redo"></i> Retry All Failed
+        </button>
+    </form>
+    <form method="POST" action="{{ url_for('flush_queue') }}" style="display:inline;"
+          onsubmit="return confirm('Permanently delete all {{ failed|length }} failed message{{ 's' if failed|length != 1 }}? This cannot be undone.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger btn-sm">
+            <i class="fas fa-trash"></i> Delete All Failed
+        </button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Queued Messages -->
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-clock"></i>&nbsp; Pending Delivery</h2>
+        <span class="badge badge-queued">{{ queued|length }} queued</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+        {% if queued %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Created</th>
+                        <th>Next Retry</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Retries</th>
+                        <th>Last Error</th>
+                        {% if current_user.has_role('operator') %}<th>Actions</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in queued %}
+                    <tr>
+                        <td class="text-sm text-muted">#{{ entry.id }}</td>
+                        <td class="text-sm" style="white-space:nowrap;">
+                            {{ entry.created_at.strftime('%b %d %H:%M') if entry.created_at else '-' }}
+                        </td>
+                        <td class="text-sm" style="white-space:nowrap;">
+                            {{ entry.next_retry_at.strftime('%b %d %H:%M') if entry.next_retry_at else '-' }}
+                        </td>
+                        <td class="truncate text-sm text-mono">{{ entry.sender }}</td>
+                        <td class="text-sm">
+                            {% set recips = entry.recipients|recipients %}
+                            {{ recips[0] if recips else '-' }}
+                            {% if recips|length > 1 %}<span class="text-muted">+{{ recips|length - 1 }}</span>{% endif %}
+                        </td>
+                        <td class="text-sm">{{ entry.retry_count }}</td>
+                        <td class="text-sm text-muted truncate">{{ entry.last_error or '-' }}</td>
+                        {% if current_user.has_role('operator') %}
+                        <td>
+                            <div class="d-flex gap-1">
+                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
+                                      onsubmit="return confirm('Permanently delete this queued message? This cannot be undone.')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger btn-xs" aria-label="Delete queued message #{{ entry.id }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-check-circle"></i></div>
+            <h3>Queue is empty</h3>
+            <p>No messages are waiting for delivery.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Processing -->
+{% if processing %}
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-spinner fa-spin"></i>&nbsp; Currently Processing</h2>
+        <span class="badge badge-processing">{{ processing|length }}</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+        <div class="alert alert-info" style="margin:0; border-radius:0; border-top:0; border-left:0; border-right:0;">
+            <i class="fas fa-info-circle"></i>&nbsp; These messages are actively being delivered. They cannot be cancelled.
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in processing %}
+                    <tr>
+                        <td class="text-sm">#{{ entry.id }}</td>
+                        <td class="text-sm text-mono">{{ entry.sender }}</td>
+                        <td class="text-sm">
+                            {% set recips = entry.recipients|recipients %}
+                            {{ recips[0] if recips else '-' }}
+                        </td>
+                        <td class="text-sm text-muted">
+                            {{ entry.created_at.strftime('%b %d %H:%M') if entry.created_at else '-' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Failed -->
+<div class="card">
+    <div class="card-header">
+        <h2><i class="fas fa-exclamation-triangle"></i>&nbsp; Failed Deliveries</h2>
+        <span class="badge badge-failed">{{ failed|length }} failed</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+        {% if failed %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Created</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Retries</th>
+                        <th>Error</th>
+                        {% if current_user.has_role('operator') %}<th>Actions</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in failed %}
+                    <tr>
+                        <td class="text-sm text-muted">#{{ entry.id }}</td>
+                        <td class="text-sm" style="white-space:nowrap;">
+                            {{ entry.created_at.strftime('%b %d %H:%M') if entry.created_at else '-' }}
+                        </td>
+                        <td class="truncate text-sm text-mono">{{ entry.sender }}</td>
+                        <td class="text-sm">
+                            {% set recips = entry.recipients|recipients %}
+                            {{ recips[0] if recips else '-' }}
+                        </td>
+                        <td class="text-sm">{{ entry.retry_count }}</td>
+                        <td class="text-sm text-danger truncate" style="max-width:300px;">{{ entry.last_error or '-' }}</td>
+                        {% if current_user.has_role('operator') %}
+                        <td>
+                            <div class="d-flex gap-1">
+                                <form method="POST" action="{{ url_for('retry_queue', qid=entry.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline btn-xs" title="Retry this message" aria-label="Retry message #{{ entry.id }}">
+                                        <i class="fas fa-redo"></i> Retry
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ url_for('delete_queue', qid=entry.id) }}"
+                                      onsubmit="return confirm('Permanently delete this message?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger btn-xs" title="Delete permanently" aria-label="Delete message #{{ entry.id }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-thumbs-up"></i></div>
+            <h3>No failed deliveries</h3>
+            <p>All messages have been delivered successfully.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
