@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+.ruff_cache
+*.db
+*.log
+config.json
+.env
+# Docs/tests never ship in the image — COPY . . only needs code.
+docs
+tests
+*.md
+LICENSE
